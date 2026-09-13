@@ -6,10 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2,
   Clock,
-  Clock3,
-  Eye,
   FileText,
-  Inbox,
   Sparkles,
   User,
   Loader2,
@@ -53,8 +50,22 @@ type Consultation = {
 
 const AUTHORIZED_ROLES = ['tarot_reader', 'admin', 'Tarot Reader', 'Administrator'];
 
+const getCardImagePath = (cardName: string) => {
+  const clean = cardName.toLowerCase().trim();
+  if (/^[cm]\d{2}$/.test(clean)) {
+    return `/cards/${clean}.png`;
+  }
+  if (clean.includes('fool')) return '/cards/m00.png';
+  if (clean.includes('magician')) return '/cards/m01.png';
+  if (clean.includes('high priestess')) return '/cards/m02.png';
+  if (clean.includes('empress')) return '/cards/m03.png';
+  if (clean.includes('emperor')) return '/cards/m04.png';
+  return `/cards/c01.png`;
+};
+
 function ConsultationCardView({ card }: { card: ConsultationCard }) {
   const reversed = card.orientation === 'Reversed';
+  const imagePath = getCardImagePath(card.name);
 
   return (
     <div className="flex flex-col">
@@ -65,27 +76,31 @@ function ConsultationCardView({ card }: { card: ConsultationCard }) {
       )}
       <div
         className={cn(
-          'relative aspect-[2/3.4] rounded-lg overflow-hidden border-2 border-primary/40 bg-gradient-to-br from-secondary/80 via-background/80 to-secondary/60 p-3 flex flex-col items-center justify-between shadow-xl',
+          'relative aspect-[2/3.4] rounded-lg overflow-hidden border-2 border-primary/40 bg-gradient-to-br from-secondary/80 via-background/80 to-secondary/60 p-2 flex flex-col items-center justify-between shadow-xl',
           reversed && 'tarot-reversed',
         )}
       >
-        <div className="w-full text-center">
-          <div className="text-[10px] uppercase tracking-wider text-primary/80 font-medium">
-            Tarot
-          </div>
+        <div className="w-full h-full flex-1 relative flex items-center justify-center overflow-hidden rounded-md my-1">
+          <img 
+            src={imagePath} 
+            alt={card.name}
+            className={cn(
+              "max-h-full max-w-full object-contain drop-shadow-md transition-transform duration-300",
+              reversed && "rotate-180"
+            )}
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
         </div>
 
-        <div className="flex-1 flex flex-col items-center justify-center text-center">
-          <div className="text-4xl md:text-5xl mb-2">{card.symbol}</div>
-          <div className="font-display text-sm md:text-base font-bold leading-tight">
+        <div className="w-full text-center mt-1">
+          <div className="font-display text-xs md:text-sm font-bold leading-tight truncate px-1">
             {card.name}
           </div>
-        </div>
-
-        <div className="w-full text-center">
           <div
             className={cn(
-              'inline-block text-[10px] px-2 py-0.5 rounded-full',
+              'inline-block text-[9px] px-2 py-0.5 rounded-full mt-1',
               reversed
                 ? 'bg-destructive/20 text-destructive'
                 : 'bg-primary/20 text-primary',
@@ -110,7 +125,6 @@ export function TarotReaderSection() {
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
 
-  // 👇 --- INSERT THIS NEW STATS BLOCK --- 👇
   const [stats, setStats] = useState({ pending: 0, completedAllTime: 0 });
 
   const fetchStats = useCallback(async () => {
@@ -125,14 +139,11 @@ export function TarotReaderSection() {
       console.error(err);
     }
   }, [authedFetch, user]);
-  // 👆 ------------------------------------ 👆
 
   const fetchQueue = useCallback(async () => {
     setLoading(true);
     try {
       const res = await authedFetch('/api/consultations');
-
-      // 👇 ADD THIS LINE: If we get a 401, we are just logging out. Silently exit.
       if (res.status === 401) return;
       
       if (!res.ok) throw new Error('Failed to fetch queue');
@@ -176,8 +187,8 @@ export function TarotReaderSection() {
 
   useEffect(() => {
     fetchQueue();
-    fetchStats(); // <-- Added
-  }, [fetchQueue, fetchStats]); // <-- Added
+    fetchStats();
+  }, [fetchQueue, fetchStats]);
 
   const selected = consultations.find((item) => item.id === selectedId) ?? null;
 
@@ -259,7 +270,6 @@ export function TarotReaderSection() {
     <div className="relative z-10 w-full pb-20">
       <div className="space-y-6">
         
-        {/* STANDARDIZED HEADER */}
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
@@ -280,7 +290,6 @@ export function TarotReaderSection() {
           </div>
 
           <div className="flex items-center gap-6">
-            {/* THE NEW METRIC CARDS */}
             <div className="hidden md:flex items-center gap-4 mr-4">
               <div className="text-center px-4 border-r border-border/50">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Pending</p>
@@ -292,7 +301,6 @@ export function TarotReaderSection() {
               </div>
             </div>
 
-            {/* SYNC BUTTON */}
             <Button 
               variant="outline" 
               size="sm" 
@@ -306,10 +314,8 @@ export function TarotReaderSection() {
           </div>
         </div>
 
-        {/* STANDARDIZED SPLIT VIEW */}
         <div className="grid lg:grid-cols-12 gap-6">
           
-          {/* QUEUE (LEFT COLUMN) */}
           <div className="lg:col-span-4 h-full">
             <Card className="bg-card/60 backdrop-blur border-border/50 p-5 flex flex-col h-full">
               <div className="flex items-center justify-between pb-4 border-b border-border/50 gap-2">
@@ -385,7 +391,6 @@ export function TarotReaderSection() {
             </Card>
           </div>
 
-          {/* WORKSPACE (RIGHT COLUMN) */}
           <div className="lg:col-span-8 space-y-6">
             {!selected ? (
               <Card className="bg-card/60 backdrop-blur border-border/50 p-12 text-center text-muted-foreground flex flex-col items-center justify-center min-h-[450px]">
@@ -397,7 +402,6 @@ export function TarotReaderSection() {
               <AnimatePresence mode="wait">
                 <motion.div key={selected.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                   
-                  {/* CLIENT DOSSIER */}
                   <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-6">
                     <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border/50">
                       <div>
@@ -424,7 +428,6 @@ export function TarotReaderSection() {
                     </div>
                   </Card>
 
-                  {/* DRAWN CARDS */}
                   <Card className="bg-card/60 backdrop-blur border-border/50 p-6">
                     <div className="flex items-center gap-2 mb-4">
                       <Layers className="w-4 h-4 text-primary" />
@@ -437,7 +440,6 @@ export function TarotReaderSection() {
                     </div>
                   </Card>
 
-                  {/* AI SYNTHESIS */}
                   <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-4">
                     <div className="flex items-center gap-2.5 pb-3 border-b border-border/50">
                       <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-indigo-400">
@@ -455,7 +457,6 @@ export function TarotReaderSection() {
                     </div>
                   </Card>
 
-                  {/* SPECIALIST EDITOR */}
                   <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-5">
                     <div className="flex items-center gap-2.5 pb-3 border-b border-border/50">
                       <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
