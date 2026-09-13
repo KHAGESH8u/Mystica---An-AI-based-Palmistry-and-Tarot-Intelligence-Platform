@@ -10,7 +10,8 @@ export async function GET(req: NextRequest) {
     const authHeader = req.headers.get('authorization');
     if (!authHeader) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const res = await fetch(`${BACKEND_URL}/api/consultations/`, {
+    // NO TRAILING SLASH HERE
+    const res = await fetch(`${BACKEND_URL}/api/consultations`, {
       headers: { Authorization: authHeader },
       // Force fetch to bypass cache as well
       cache: 'no-store' 
@@ -40,7 +41,8 @@ export async function POST(req: NextRequest) {
     // Safety log to see what the frontend is actually sending
     console.log("Submitting Consultation Payload:", body);
 
-    const res = await fetch(`${BACKEND_URL}/api/consultations/`, {
+    // NO TRAILING SLASH HERE EITHER
+    const res = await fetch(`${BACKEND_URL}/api/consultations`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

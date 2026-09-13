@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Bell,
   BookOpen,
@@ -24,6 +24,7 @@ type ReadingStyle = 'short' | 'detailed';
 
 type ProfileState = {
   fullName: string;
+  avatarBase64?: string; // <--- ADD THIS LINE
   birthDate: string;
   zodiacSign: string;
   ageGroup: string;
@@ -54,6 +55,7 @@ const topicOptions = ['Personality', 'Relationships', 'Career', 'Finance', 'Well
 
 const defaultProfile: ProfileState = {
   fullName: '',
+  avatarBase64: '', // <--- ADD THIS LINE
   birthDate: '',
   zodiacSign: '',
   ageGroup: '18–24',
@@ -93,6 +95,26 @@ export function ProfileSection() {
 
   const { toast } = useToast();
   const authedFetch = useAuthedFetch();
+  
+  // 👇 NEW: Avatar File Handler 👇
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file size (e.g., max 2MB to keep the DB happy)
+      if (file.size > 2 * 1024 * 1024) {
+        toast({ title: 'File too large', description: 'Please choose an image under 2MB.', variant: 'destructive' });
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        updateField('avatarBase64', reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  // 👆 ---------------------- 👆
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -210,8 +232,12 @@ export function ProfileSection() {
 
             <div className="mb-6 flex flex-col items-center gap-4 rounded-2xl border border-border/60 bg-background/50 p-4 sm:flex-row sm:justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 via-accent/20 to-primary/10 text-primary ring-1 ring-primary/30">
-                  <Camera className="h-7 w-7" />
+                <div className="flex h-16 w-16 overflow-hidden items-center justify-center rounded-full bg-gradient-to-br from-primary/20 via-accent/20 to-primary/10 text-primary ring-1 ring-primary/30">
+                  {profile.avatarBase64 ? (
+                    <img src={profile.avatarBase64} alt="Profile" className="h-full w-full object-cover" />
+                  ) : (
+                    <Camera className="h-7 w-7" />
+                  )}
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Profile photo</p>
@@ -219,10 +245,24 @@ export function ProfileSection() {
                 </div>
               </div>
 
-              <Button type="button" variant="outline" className="border-primary/40 bg-card/80 text-foreground hover:bg-primary/5">
-                <Camera className="mr-2 h-4 w-4" />
-                Change Photo
-              </Button>
+              <div>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  ref={fileInputRef} 
+                  onChange={handleImageUpload} 
+                />
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-primary/40 bg-card/80 text-foreground hover:bg-primary/5"
+                >
+                  <Camera className="mr-2 h-4 w-4" />
+                  {profile.avatarBase64 ? 'Change Photo' : 'Upload Photo'}
+                </Button>
+              </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">

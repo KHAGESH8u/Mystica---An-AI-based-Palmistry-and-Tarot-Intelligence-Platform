@@ -43,7 +43,7 @@ export async function GET(request: Request) {
       } else {
         // CALL GEMINI if not cached
         try {
-          const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+          const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
           const prompt = `
             You are a master astrologer. Provide a daily forecast.
             User's Zodiac Sign: ${aiContext.sign}

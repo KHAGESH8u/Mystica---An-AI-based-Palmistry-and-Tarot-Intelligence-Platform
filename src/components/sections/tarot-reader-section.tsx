@@ -131,6 +131,10 @@ export function TarotReaderSection() {
     setLoading(true);
     try {
       const res = await authedFetch('/api/consultations');
+
+      // 👇 ADD THIS LINE: If we get a 401, we are just logging out. Silently exit.
+      if (res.status === 401) return;
+      
       if (!res.ok) throw new Error('Failed to fetch queue');
       const data = await res.json();
 

@@ -16,6 +16,7 @@ import {
   Calendar,
   HelpCircle,
   Image as ImageIcon,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -173,6 +174,140 @@ export function HistorySection() {
       });
     } finally {
       setRequestingReview(false);
+    }
+  };
+
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+
+  const handleDownloadPDF = async () => {
+    if (!selectedReading) return;
+    setIsGeneratingPDF(true);
+
+    try {
+      // 1. Silent proxy ping for ActivityLog & Report tables
+      try {
+        const logRes = await authedFetch(`/api/readings/${selectedReading.data.id}/download-trigger`);
+        if (!logRes.ok) console.warn("Backend logging failed, but proceeding with PDF.");
+      } catch (err) {
+        console.warn("Proxy call failed:", err);
+      }
+
+      // 2. Fetch associated specialist reviews
+      let specialistNotesHtml = '';
+      try {
+        const consultRes = await authedFetch('/api/consultations');
+        if (consultRes.ok) {
+          const consults = await consultRes.json();
+          const related = consults.filter((c: any) => 
+            c.readingId === selectedReading.data.id && c.status.toLowerCase() === 'completed'
+          );
+
+          if (related.length > 0) {
+            specialistNotesHtml = `
+              <div style="margin-top: 40px; border-top: 2px solid #e2e8f0; padding-top: 20px;">
+                <h2 style="color: #6d28d9; font-size: 20px; margin-bottom: 15px;">Specialist Reviews</h2>
+                ${related.map((c: any) => `
+                  <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #cbd5e1;">
+                    <h4 style="margin: 0 0 10px 0; color: #334155; text-transform: capitalize; font-size: 16px;">
+                      ${c.specialistType.replace('_', ' ')}
+                    </h4>
+                    <p style="font-size: 14px; color: #475569; margin: 0; white-space: pre-wrap; line-height: 1.6;">
+                      ${c.specialistNotes}
+                    </p>
+                  </div>
+                `).join('')}
+              </div>
+            `;
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to fetch consultations for PDF", e);
+      }
+
+      // 3. Build Images HTML
+      let mediaHtml = '';
+      const baseUrl = window.location.origin;
+      
+      if (selectedReading.type === 'tarot') {
+        const draws = (selectedReading.data as any).draw;
+        mediaHtml = `
+          <div style="display: flex; gap: 15px; margin-bottom: 30px; justify-content: center; flex-wrap: wrap;">
+            ${draws.map((d: any) => `
+              <div style="text-align: center; width: 120px;">
+                <img src="${baseUrl}/cards/${d.cardId}.jpg" 
+                     style="width: 100%; border-radius: 8px; border: 1px solid #ccc; ${d.orientation === 'reversed' ? 'transform: rotate(180deg);' : ''}" />
+                <p style="font-size: 11px; margin-top: 8px; color: #555; text-transform: capitalize;">
+                  ${d.cardId.replace(/-(major|minor)-/g, ' ').replace(/-/g, ' ')}<br/>
+                  <b>(${d.orientation})</b>
+                </p>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else if (selectedReading.type === 'palm' && (selectedReading.data as any).imageUrl) {
+        mediaHtml = `
+          <div style="text-align: center; margin-bottom: 30px;">
+            <img src="${(selectedReading.data as any).imageUrl}" style="max-height: 300px; border-radius: 8px; border: 1px solid #ccc;" />
+          </div>
+        `;
+      }
+
+      // 4. Assemble HTML String
+      const interpretation = selectedReading.type === 'tarot' || selectedReading.type === 'insight'
+        ? (selectedReading.data as any).interpretation
+        : (selectedReading.data as any).personalitySynthesis;
+
+      const reportContent = `
+        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #1e293b; background: #ffffff;">
+          <div style="border-bottom: 3px solid #8b5cf6; padding-bottom: 15px; margin-bottom: 30px;">
+            <h1 style="color: #6d28d9; margin: 0; font-size: 28px;">Mystica AI Report</h1>
+            <p style="color: #64748b; font-size: 12px; margin-top: 5px;">Archive ID: ${selectedReading.data.id}</p>
+          </div>
+          
+          ${mediaHtml}
+          
+          <h3 style="margin-bottom: 10px; color: #0f172a; font-size: 18px;">Executive Summary</h3>
+          <p style="line-height: 1.6; font-size: 14px; margin-bottom: 25px;">${selectedReading.data.summary}</p>
+          
+          <h3 style="margin-bottom: 10px; color: #0f172a; font-size: 18px;">Detailed Interpretation</h3>
+          <p style="line-height: 1.6; font-size: 14px; white-space: pre-wrap;">${interpretation}</p>
+          
+          ${specialistNotesHtml}
+          
+          <div style="margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center; font-size: 10px; color: #94a3b8;">
+            Generated securely by the Mystica Intelligence Platform
+          </div>
+        </div>
+      `;
+
+      // 5. Generate PDF
+      const html2pdfModule = (await import('html2pdf.js')) as any;
+      const html2pdf = html2pdfModule.default || html2pdfModule;
+
+      const opt: any = {
+        margin: 0.2, 
+        filename: `Mystica_${selectedReading.type}_Reading.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { 
+          scale: 2, 
+          useCORS: true, 
+          logging: false,
+          // 👇 THIS STOPS THE CSS CRASH
+          onclone: (clonedDoc: any) => {
+            const styles = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
+            styles.forEach((s: any) => s.remove());
+          }
+        },
+        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+      };
+
+      await html2pdf().set(opt).from(reportContent).save();
+      toast({ title: 'Success!', description: 'Report downloaded and vaulted.' });
+    } catch (e: any) {
+      console.error("PDF Engine Error:", e);
+      toast({ title: 'Download Failed', description: 'Could not generate PDF.', variant: 'destructive' });
+    } finally {
+      setIsGeneratingPDF(false);
     }
   };
 
@@ -413,215 +548,226 @@ export function HistorySection() {
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           {selectedReading && (
             <>
-              <DialogHeader>
-                <div className="flex items-center gap-2 mb-1">
-                  {selectedReading.type === 'tarot' ? (
-                    <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/30">Tarot Reading</Badge>
-                  ) : selectedReading.type === 'insight' ? (
-                    <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">Spiritual Insight</Badge>
-                  ) : (
-                    <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/30">Palmistry Analysis</Badge>
-                  )}
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(selectedReading.data.createdAt).toLocaleString()}
-                  </span>
-                </div>
-                <DialogTitle className="text-2xl font-bold">
-                  {selectedReading.type === 'tarot'
-                    ? (selectedReading.data as TarotReadingRecord).spreadType
-                    : selectedReading.type === 'insight'
-                    ? 'Holistic Insight'
-                    : `${(selectedReading.data as PalmReadingRecord).handType} Hand Scan`}
-                </DialogTitle>
-                <DialogDescription>
-                  {(selectedReading.type === 'tarot' || selectedReading.type === 'insight') && (selectedReading.data as TarotReadingRecord | InsightRecord).question ? (
-                    <span className="flex items-center gap-1.5 text-xs italic text-foreground/80">
-                      <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                      Inquiry: &quot;{(selectedReading.data as TarotReadingRecord | InsightRecord).question}&quot;
+              {/* 👇 START OF PDF SNAPSHOT AREA 👇 */}
+              <div id="reading-report-content" className="p-2 sm:p-4 bg-background rounded-lg">
+                <DialogHeader>
+                  <div className="flex items-center gap-2 mb-1">
+                    {selectedReading.type === 'tarot' ? (
+                      <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/30">Tarot Reading</Badge>
+                    ) : selectedReading.type === 'insight' ? (
+                      <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">Spiritual Insight</Badge>
+                    ) : (
+                      <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/30">Palmistry Analysis</Badge>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(selectedReading.data.createdAt).toLocaleString()}
                     </span>
-                  ) : (
-                    selectedReading.data.summary
-                  )}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-6 mt-4">
-
-                {/* TAROT SPECIFIC: CARD IMAGES & SPREAD */}
-                {selectedReading.type === 'tarot' && (
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      The Spread
-                    </h4>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                      {(selectedReading.data as TarotReadingRecord).draw.map((d, idx) => (
-                        <div key={idx} className="flex flex-col items-center gap-2 bg-secondary/20 p-3 rounded-xl border border-border/50">
-                          <div className="text-[10px] text-muted-foreground uppercase font-semibold text-center h-4">
-                            {d.position}
-                          </div>
-                          {/* CARD IMAGE FRAME */}
-                          <div className="relative w-full max-w-[120px] aspect-[1/1.7] rounded-lg overflow-hidden border border-border shadow-md bg-muted">
-                            <img
-                              src={`/cards/${d.cardId}.jpg`}
-                              alt={d.cardId}
-                              className={cn(
-                                "w-full h-full object-cover transition-transform duration-500",
-                                d.orientation === 'reversed' && "rotate-180"
-                              )}
-                              onError={(e) => {
-                                // Fallback if image isn't placed in public/tarot/ yet
-                                e.currentTarget.style.display = 'none';
-                                e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center');
-                                e.currentTarget.parentElement?.insertAdjacentHTML('beforeend', `<span class="text-xs text-muted-foreground p-2 text-center">${d.cardId}</span>`);
-                              }}
-                            />
-                          </div>
-                          <div className="text-center mt-1">
-                            <div className="font-medium text-sm capitalize leading-tight">
-                              {d.cardId.replace('major-', '').replace('minor-', '').replace(/-/g, ' ')}
-                            </div>
-                            <Badge
-                              variant={d.orientation === 'upright' ? 'default' : 'destructive'}
-                              className="mt-1.5 text-[10px] h-4 py-0"
-                            >
-                              {d.orientation === 'upright' ? 'Upright ↑' : 'Reversed ↓'}
-                            </Badge>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
                   </div>
-                )}
+                  <DialogTitle className="text-2xl font-bold">
+                    {selectedReading.type === 'tarot'
+                      ? (selectedReading.data as TarotReadingRecord).spreadType
+                      : selectedReading.type === 'insight'
+                      ? 'Holistic Insight'
+                      : `${(selectedReading.data as PalmReadingRecord).handType} Hand Scan`}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {(selectedReading.type === 'tarot' || selectedReading.type === 'insight') && (selectedReading.data as TarotReadingRecord | InsightRecord).question ? (
+                      <span className="flex items-center gap-1.5 text-xs italic text-foreground/80">
+                        <HelpCircle className="w-3.5 h-3.5 text-primary" />
+                        Inquiry: &quot;{(selectedReading.data as TarotReadingRecord | InsightRecord).question}&quot;
+                      </span>
+                    ) : (
+                      selectedReading.data.summary
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
 
-                {/* PALM SPECIFIC: IMAGE + STATS LAYOUT */}
-                {selectedReading.type === 'palm' && (
-                  <div className="flex flex-col md:flex-row gap-6">
-                    {/* LEFT COLUMN: PALM PHOTO */}
-                    <div className="w-full md:w-1/3 aspect-[4/3] bg-secondary/30 rounded-xl overflow-hidden border border-border/50 flex flex-col items-center justify-center shrink-0 shadow-inner relative">
-                      {(selectedReading.data as PalmReadingRecord).imageUrl ? (
-                        <img
-                          src={(selectedReading.data as PalmReadingRecord).imageUrl!}
-                          alt="Palm Scan"
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center gap-3 text-muted-foreground p-6 text-center">
-                          <ImageIcon className="w-10 h-10 opacity-20" />
-                          <span className="text-xs opacity-60">Image not saved for this legacy scan. New scans will appear here.</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* RIGHT COLUMN: LINE CONFIDENCES */}
-                    <div className="flex-1 space-y-3">
+                <div className="space-y-6 mt-4">
+                  {/* TAROT SPECIFIC: CARD IMAGES & SPREAD */}
+                  {selectedReading.type === 'tarot' && (
+                    <div className="space-y-3">
                       <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Detected Features
+                        The Spread
                       </h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {Object.entries((selectedReading.data as PalmReadingRecord).lines).map(([name, val]) => {
-                          const label = name.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-                          const pct = Math.round((val.confidence || 0) * 100);
-                          return (
-                            <div key={name} className="p-3 rounded-lg border border-border/60 bg-secondary/20">
-                              <div className="text-[11px] text-muted-foreground">{label}</div>
-                              <div className="flex items-center justify-between mt-1">
-                                <span className={cn('text-sm font-semibold', val.detected ? 'text-primary' : 'text-muted-foreground')}>
-                                  {val.detected ? `${pct}%` : 'Not Detected'}
-                                </span>
-                                {val.detected && (
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {val.points.length} pts
-                                  </span>
-                                )}
-                              </div>
-                              <div className="w-full bg-secondary h-1.5 rounded-full mt-2 overflow-hidden">
-                                <div
-                                  className={cn('h-full rounded-full', val.detected ? 'bg-primary' : 'bg-muted')}
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {(selectedReading.data as TarotReadingRecord).draw.map((d, idx) => (
+                          <div key={idx} className="flex flex-col items-center gap-2 bg-secondary/20 p-3 rounded-xl border border-border/50">
+                            <div className="text-[10px] text-muted-foreground uppercase font-semibold text-center h-4">
+                              {d.position}
                             </div>
-                          );
-                        })}
+                            {/* CARD IMAGE FRAME */}
+                            <div className="relative w-full max-w-[120px] aspect-[1/1.7] rounded-lg overflow-hidden border border-border shadow-md bg-muted">
+                              <img
+                                src={`/cards/${d.cardId}.jpg`}
+                                alt={d.cardId}
+                                className={cn(
+                                  "w-full h-full object-cover transition-transform duration-500",
+                                  d.orientation === 'reversed' && "rotate-180"
+                                )}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center');
+                                  e.currentTarget.parentElement?.insertAdjacentHTML('beforeend', `<span class="text-xs text-muted-foreground p-2 text-center">${d.cardId}</span>`);
+                                }}
+                              />
+                            </div>
+                            <div className="text-center mt-1">
+                              <div className="font-medium text-sm capitalize leading-tight">
+                                {d.cardId.replace('major-', '').replace('minor-', '').replace(/-/g, ' ')}
+                              </div>
+                              <Badge
+                                variant={d.orientation === 'upright' ? 'default' : 'destructive'}
+                                className="mt-1.5 text-[10px] h-4 py-0"
+                              >
+                                {d.orientation === 'upright' ? 'Upright ↑' : 'Reversed ↓'}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* AI SYNTHESIS / INTERPRETATION */}
-                <div className="p-5 rounded-xl border border-primary/20 bg-primary/5 space-y-2 shadow-sm">
-                  <div className="flex items-center gap-2 text-primary text-sm font-semibold">
-                    <Sparkles className="w-4 h-4" />
-                    AI Holistic Interpretation
-                  </div>
-                  <div className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap font-sans">
-                    {selectedReading.type === 'tarot'
-                      ? (selectedReading.data as TarotReadingRecord).interpretation
-                      : selectedReading.type === 'insight'
-                      ? (selectedReading.data as InsightRecord).interpretation
-                      : (selectedReading.data as PalmReadingRecord).personalitySynthesis}
+                  {/* PALM SPECIFIC: IMAGE + STATS LAYOUT */}
+                  {selectedReading.type === 'palm' && (
+                    <div className="flex flex-col md:flex-row gap-6">
+                      <div className="w-full md:w-1/3 aspect-[4/3] bg-secondary/30 rounded-xl overflow-hidden border border-border/50 flex flex-col items-center justify-center shrink-0 shadow-inner relative">
+                        {(selectedReading.data as PalmReadingRecord).imageUrl ? (
+                          <img
+                            src={(selectedReading.data as PalmReadingRecord).imageUrl!}
+                            alt="Palm Scan"
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center gap-3 text-muted-foreground p-6 text-center">
+                            <ImageIcon className="w-10 h-10 opacity-20" />
+                            <span className="text-xs opacity-60">Image not saved for this legacy scan. New scans will appear here.</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 space-y-3">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Detected Features
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {Object.entries((selectedReading.data as PalmReadingRecord).lines).map(([name, val]) => {
+                            const label = name.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+                            const pct = Math.round((val.confidence || 0) * 100);
+                            return (
+                              <div key={name} className="p-3 rounded-lg border border-border/60 bg-secondary/20">
+                                <div className="text-[11px] text-muted-foreground">{label}</div>
+                                <div className="flex items-center justify-between mt-1">
+                                  <span className={cn('text-sm font-semibold', val.detected ? 'text-primary' : 'text-muted-foreground')}>
+                                    {val.detected ? `${pct}%` : 'Not Detected'}
+                                  </span>
+                                  {val.detected && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {val.points.length} pts
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="w-full bg-secondary h-1.5 rounded-full mt-2 overflow-hidden">
+                                  <div
+                                    className={cn('h-full rounded-full', val.detected ? 'bg-primary' : 'bg-muted')}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI SYNTHESIS / INTERPRETATION */}
+                  <div className="p-5 rounded-xl border border-primary/20 bg-primary/5 space-y-2 shadow-sm">
+                    <div className="flex items-center gap-2 text-primary text-sm font-semibold">
+                      <Sparkles className="w-4 h-4" />
+                      AI Holistic Interpretation
+                    </div>
+                    <div className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap font-sans">
+                      {selectedReading.type === 'tarot'
+                        ? (selectedReading.data as TarotReadingRecord).interpretation
+                        : selectedReading.type === 'insight'
+                        ? (selectedReading.data as InsightRecord).interpretation
+                        : (selectedReading.data as PalmReadingRecord).personalitySynthesis}
+                    </div>
                   </div>
                 </div>
+              </div>
+              {/* 👆 END OF PDF SNAPSHOT AREA 👆 */}
 
-                {/* ACTION: CONSULTATION TRIGGER */}
-                <div className="pt-4 border-t border-border/50">
-                  {!isReviewMode ? (
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                      <span className="text-xs text-muted-foreground text-center sm:text-left">
-                        Want a human expert to deeply analyze these results?
-                      </span>
+              {/* ACTION: CONSULTATION TRIGGER (OUTSIDE PDF AREA) */}
+              <div className="pt-4 mt-4 border-t border-border/50">
+                {!isReviewMode ? (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <span className="text-xs text-muted-foreground text-center sm:text-left">
+                      Save this reading or ask an expert for deep analysis.
+                    </span>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs w-full sm:w-auto"
+                        onClick={handleDownloadPDF}
+                        disabled={isGeneratingPDF}
+                      >
+                        {isGeneratingPDF ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                        Save PDF
+                      </Button>
                       <Button
                         size="sm"
                         className="gap-1.5 text-xs w-full sm:w-auto"
                         onClick={() => {
-                          // Pre-fill the input if it's a tarot reading with an existing question
                           const existingQ = (selectedReading.data as any).question;
                           setClientQuestion(existingQ || '');
                           setIsReviewMode(true);
                         }}
                       >
                         <UserCheck className="w-3.5 h-3.5" />
-                        Request Specialist Review
+                        Request Review
                       </Button>
                     </div>
-                  ) : (
-                    <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        What would you like to ask the specialist?
-                      </label>
-                      <Input
-                        value={clientQuestion}
-                        onChange={(e) => setClientQuestion(e.target.value)}
-                        placeholder="e.g., Can you provide more clarity on the second card?"
-                        className="text-sm bg-background/50"
+                  </div>
+                ) : (
+                  <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      What would you like to ask the specialist?
+                    </label>
+                    <Input
+                      value={clientQuestion}
+                      onChange={(e) => setClientQuestion(e.target.value)}
+                      placeholder="e.g., Can you provide more clarity on the second card?"
+                      className="text-sm bg-background/50"
+                      disabled={requestingReview}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsReviewMode(false)}
                         disabled={requestingReview}
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setIsReviewMode(false)}
-                          disabled={requestingReview}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={handleRequestReview}
-                          disabled={requestingReview || !clientQuestion.trim()}
-                          className="bg-primary text-primary-foreground"
-                        >
-                          {requestingReview ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                          ) : (
-                            <UserCheck className="w-3.5 h-3.5 mr-1.5" />
-                          )}
-                          {requestingReview ? 'Sending...' : 'Confirm & Send'}
-                        </Button>
-                      </div>
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleRequestReview}
+                        disabled={requestingReview || !clientQuestion.trim()}
+                        className="bg-primary text-primary-foreground"
+                      >
+                        {requestingReview ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                        ) : (
+                          <UserCheck className="w-3.5 h-3.5 mr-1.5" />
+                        )}
+                        {requestingReview ? 'Sending...' : 'Confirm & Send'}
+                      </Button>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </>
           )}

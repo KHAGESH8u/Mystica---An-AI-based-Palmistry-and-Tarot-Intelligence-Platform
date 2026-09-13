@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 import jwt
+import json
 from datetime import datetime
 from pydantic import BaseModel
 from typing import List, Optional
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/api/profile", tags=["Profile"])
 # This Pydantic model perfectly matches Subham's React state!
 class ProfilePayload(BaseModel):
     fullName: Optional[str] = ""
+    avatarBase64: Optional[str] = ""
     birthDate: Optional[str] = None
     ageGroup: Optional[str] = "18–24"
     zodiacSign: Optional[str] = None
@@ -58,6 +60,7 @@ async def get_profile_data(user_id: str = Depends(get_user_id)):
     # Combine them back into the flat JSON structure the frontend expects
     return {
         "fullName": user.name,
+        "avatarBase64": getattr(user, "avatarBase64", ""),
         "birthDate": bdate,
         "ageGroup": p.ageGroup if p else "18-24",
         "zodiacSign": p.zodiacSign if p else "",
@@ -86,11 +89,15 @@ async def update_profile_data(data: ProfilePayload, user_id: str = Depends(get_u
         except ValueError:
             pass
 
-    # 1. Update User Table (Name syncs everywhere)
+    # 1. Update User Table (Name ONLY)
+    user_update_data = {}
     if data.fullName:
-        await db.user.update(where={"id": user_id}, data={"name": data.fullName})
-
-    # 2. Update Profile Table
+        user_update_data["name"] = data.fullName
+        
+    if user_update_data:
+        await db.user.update(where={"id": user_id}, data=user_update_data)
+        
+    # 2. Update Profile Table (Avatar goes here!)
     profile_data = {
         "userId": user_id,
         "birthDate": parsed_date,
@@ -103,6 +110,7 @@ async def update_profile_data(data: ProfilePayload, user_id: str = Depends(get_u
         "secondaryGoals": data.secondaryGoals,
         "guidanceAreas": data.guidanceAreas,
         "preferredTopics": data.preferredTopics,
+        "avatarUrl": data.avatarBase64  # <--- WE MOVED THIS HERE
     }
     await db.profile.upsert(
         where={"userId": user_id},
@@ -123,6 +131,22 @@ async def update_profile_data(data: ProfilePayload, user_id: str = Depends(get_u
     await db.preference.upsert(
         where={"userId": user_id},
         data={"create": pref_data, "update": pref_data}
+    )
+
+    # ==========================================
+    # 4. NEW: Feed the Master Dashboard Funnel!
+    # ==========================================
+    # This proves the user successfully completed their profile,
+    # pushing them to the second stage of the Onboarding Funnel.
+    await db.activitylog.create(
+        data={
+            "userId": user_id,
+            "action": "profile_completed",
+            "metadata": json.dumps({
+                "primaryGoal": data.primaryLifeGoal,
+                "ageGroup": data.ageGroup
+            })
+        }
     )
 
     return {"success": True}

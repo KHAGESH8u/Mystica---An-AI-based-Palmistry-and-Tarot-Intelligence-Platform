@@ -35,12 +35,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
 @router.post("/")
 async def create_consultation(data: ConsultationCreate, user=Depends(get_current_user)):
-    # 1. Check if the reading exists
     reading = await db.reading.find_unique(where={"id": data.readingId})
     if not reading:
         raise HTTPException(status_code=404, detail="Reading not found")
 
-    # 2. Create the ticket
     consultation = await db.consultation.create(
         data={
             "clientId": user.id,
@@ -50,6 +48,16 @@ async def create_consultation(data: ConsultationCreate, user=Depends(get_current
             "status": "Pending",
         }
     )
+    
+    # 👇 NEW: FEED THE MASTER DASHBOARD FUNNEL 👇
+    await db.activitylog.create(
+        data={
+            "userId": user.id,
+            "action": "consultation_booked",
+            "metadata": json.dumps({"specialistType": data.specialistType})
+        }
+    )
+    
     return consultation
 
 
@@ -133,7 +141,6 @@ async def review_consultation(
     if role == "user":
         raise HTTPException(status_code=403, detail="Users cannot review tickets")
 
-    # BUG 2 FIX: We removed json.dumps(). It now saves the beautifully formatted string directly!
     updated = await db.consultation.update(
         where={"id": consultation_id},
         data={
@@ -143,7 +150,7 @@ async def review_consultation(
         },
     )
 
-    # 👇 --- NEW: AUTOMATIC NOTIFICATION TRIGGER --- 👇
+    # Your existing notification code
     await db.notification.create(
         data={
             "userId": updated.clientId,
@@ -153,6 +160,32 @@ async def review_consultation(
             "isRead": False
         }
     )
-    # 👆 -------------------------------------------- 👆
+    
+    # 👇 NEW: FEED THE MASTER DASHBOARD (Specialist Throughput) 👇
+    await db.activitylog.create(
+        data={
+            "userId": user.id, # The Specialist's ID
+            "action": "consultation_completed",
+            "metadata": json.dumps({"ticketId": consultation_id})
+        }
+    )
     
     return updated
+
+@router.get("/{consultation_id}/view")
+async def view_completed_review(consultation_id: str, user=Depends(get_current_user)):
+    # 1. Fetch the ticket
+    ticket = await db.consultation.find_unique(where={"id": consultation_id})
+    if not ticket or ticket.clientId != user.id:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # 2. Log that the user actually read the specialist's advice!
+    await db.activitylog.create(
+        data={
+            "userId": user.id,
+            "action": "review_viewed",
+            "metadata": json.dumps({"ticketId": consultation_id, "specialistType": ticket.specialistType})
+        }
+    )
+    
+    return ticket

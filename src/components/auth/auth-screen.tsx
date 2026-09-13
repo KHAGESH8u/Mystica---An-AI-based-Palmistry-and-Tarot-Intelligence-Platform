@@ -30,6 +30,7 @@ import {
 import { useAuth } from '@/components/auth/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
 
 type Mode = 'login' | 'register';
 
@@ -44,8 +45,10 @@ export function AuthScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { login, register } = useAuth();
+ // Grab 'user' from useAuth, and initialize the router
+  const { login, register, user } = useAuth();
   const { toast } = useToast();
+  const router = useRouter(); // 👈 YOU MUST ADD THIS LINE!
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,12 +64,29 @@ export function AuthScreen() {
 
     try {
       if (mode === 'login') {
-        await login(email, password);
+        // 1. Await the login and catch the returned user data instantly
+        const loggedInUser = await login(email, password); 
+        
         toast({
           title: 'Welcome back',
           description: 'You are now signed in.',
         });
+
+        // 2. 🚀 INSTANT ROUTING (No Race Conditions!)
+        const userRole = loggedInUser.role.toLowerCase();
+        
+        if (userRole === 'admin') {
+          router.push('/admin'); // Admin goes to Command Center
+        } else if (userRole.includes('consultant') || userRole.includes('reader')) {
+          router.push('/specialist-dashboard'); // Specialists to queue
+        } else if (!loggedInUser.isInitiated) {
+          router.push('/onboarding'); // New users to goals
+        } else {
+          router.push('/dashboard'); // Returning users to vault
+        }
+
       } else {
+        // ... (Keep your register logic exactly the same)
         // We pass the role to the register function (you may need to update auth-provider.tsx later to accept this 4th argument)
         // @ts-ignore - Ignoring TS error temporarily until auth-provider is updated
         await register(name, email, password, role);

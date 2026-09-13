@@ -92,7 +92,7 @@ export function NotificationBell() {
                 You're all caught up!
               </div>
             ) : (
-              notifications.map((n) => (
+              notifications.filter(n => !n.isRead).map((n) => (
                 <div 
                   key={n.id} 
                   className={`p-3.5 border-b border-border/40 hover:bg-secondary/30 transition-colors ${!n.isRead ? 'bg-primary/5' : ''}`}

@@ -20,7 +20,7 @@ import {
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { useAuth } from '@/components/auth/auth-provider';
+import { useAuth, useAuthedFetch } from '@/components/auth/auth-provider';
 import { Progress } from '@/components/ui/progress';
 
 interface Review {
@@ -62,22 +62,44 @@ interface DashboardData {
     };
   };
 }
+// <-- End of DashboardData interface
 
+// 👇 YOU WERE MISSING THIS LINE 👇
 export function DashboardSection() {
-  const { user, token } = useAuth();
+  const { user } = useAuth(); 
+  const authedFetch = useAuthedFetch();
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Real-time DB Stats
+  const [liveStats, setLiveStats] = useState({ pending: 0, completedAllTime: 0 });
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchLiveStats = async () => {
+      try {
+        const res = await authedFetch('/api/consultations/stats');
+        if (res.ok) setLiveStats(await res.json());
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchLiveStats();
+  }, [user, authedFetch]);
 
   const role = (user?.role || 'user').toLowerCase();
   const isSpecialist = role.includes('palm') || role.includes('tarot') || role.includes('spiritual');
 
-  useEffect(() => {
+// ... rest of your code stays exactly the same
+
+ useEffect(() => {
     if (!user) return; // Wait until AuthProvider loads the user
 
     const fetchDashboard = async () => {
       try {
-        const currentToken = token || localStorage.getItem('mystica_token');
+        // 👇 FIXED: Removed 'token ||', now it just safely checks localStorage
+        const currentToken = localStorage.getItem('mystica_token');
         const headers: HeadersInit = {};
         if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
 
@@ -98,7 +120,8 @@ export function DashboardSection() {
     };
 
     fetchDashboard();
-  }, [user, token]);
+  // 👇 FIXED: Removed 'token' from the dependency array
+  }, [user]);
 
   if (isLoading) {
     return <div className="p-8 text-center text-muted-foreground animate-pulse">Synchronizing with intelligence platform...</div>;
@@ -136,7 +159,7 @@ export function DashboardSection() {
                   Welcome, {user?.name || 'Master Consultant'}
                 </h1>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Your {specialistRoleName} workspace is primed. Intuitive field resonance is optimal today.
+                  Your {specialistRoleName} workspace is primed. You currently have <strong className="text-amber-400">{liveStats.pending} pending</strong> tickets in your queue.
                 </p>
               </div>
             </div>
@@ -193,7 +216,7 @@ export function DashboardSection() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Completed Reviews</p>
-                <p className="text-3xl font-display font-bold mt-2 text-foreground">{stats.completedReviews}</p>
+                <p className="text-3xl font-display font-bold mt-2 text-foreground">{liveStats.completedAllTime}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                 <CheckCircle2 className="w-5 h-5" />

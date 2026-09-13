@@ -24,7 +24,7 @@ export function UserConsultationsSection() {
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
-  
+
   const authedFetch = useAuthedFetch();
 
   useEffect(() => {
@@ -33,13 +33,16 @@ export function UserConsultationsSection() {
         const res = await authedFetch('/api/consultations');
         if (res.ok) {
           const data = await res.json();
-          // Parse the JSON string from specialistNotes
           const parsedTickets = data.map((t: any) => {
-            let parsedNotes = { notes: '', summary: '', rating: 0 };
-            if (t.specialistNotes) {
-              try { parsedNotes = JSON.parse(t.specialistNotes); } catch (e) {}
-            }
-            return { ...t, parsedNotes };
+            return {
+              ...t,
+              // Just map the raw string directly to the notes field!
+              parsedNotes: {
+                notes: t.specialistNotes || '',
+                summary: '',
+                rating: 0
+              }
+            };
           });
           setTickets(parsedTickets);
         }
@@ -105,7 +108,7 @@ export function UserConsultationsSection() {
                   </div>
                 </div>
 
-                <Button 
+                <Button
                   onClick={() => setSelectedTicket(ticket)}
                   disabled={ticket.status.toLowerCase() !== 'completed'}
                   className={ticket.status.toLowerCase() === 'completed' ? 'bg-primary text-primary-foreground' : ''}

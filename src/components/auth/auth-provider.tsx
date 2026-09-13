@@ -20,7 +20,7 @@ export interface AuthUser {
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   register: (name: string, email: string, password: string, role: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -68,9 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       const fetchedUser = data.user;
       
-      // <-- NEW: Check profile status seamlessly in the background
+      // <-- NEW: VIP Pass for Admins, normal check for everyone else
       if (token && fetchedUser) {
-        fetchedUser.isInitiated = await checkProfileInitiation(token);
+        if (fetchedUser.role === 'admin') {
+          fetchedUser.isInitiated = true; // Admins skip onboarding
+        } else {
+          fetchedUser.isInitiated = await checkProfileInitiation(token);
+        }
       }
       
       setUser(fetchedUser ?? null);
@@ -109,10 +113,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (typeof window !== 'undefined' && data.access_token) {
         localStorage.setItem(TOKEN_STORAGE_KEY, data.access_token);
-        // <-- NEW: Check profile status on fresh login
-        data.user.isInitiated = await checkProfileInitiation(data.access_token);
+        
+        // <-- NEW: VIP Pass for Admins on fresh login
+        if (data.user.role === 'admin') {
+          data.user.isInitiated = true;
+        } else {
+          data.user.isInitiated = await checkProfileInitiation(data.access_token);
+        }
       }
       setUser(data.user);
+      return data.user;
     },
     []
   );
