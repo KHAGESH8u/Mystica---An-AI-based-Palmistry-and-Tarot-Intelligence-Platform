@@ -16,21 +16,22 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Fetch real DB data from Python
-    const res = await fetch(`http://backend:8000/api/dashboard`, {
+    // 1. Fetch real DB data from Python using the environment variable
+    const backendUrl = process.env.BACKEND_URL || 'https://mystica-backend.onrender.com';
+    const res = await fetch(`${backendUrl}/api/dashboard`, {
       headers: { 'Authorization': authHeader }
     });
-    
+
     if (!res.ok) {
       throw new Error(`Backend returned ${res.status}`);
     }
-    
+
     const data = await res.json();
 
     // 2. If it's a Seeker (User), Node handles the Gemini generation
     if (data.dashboard && data.dashboard.role === 'user') {
       const { userId, aiContext, astrology } = data.dashboard;
-      
+
       // Generate a cache key: e.g., "12345-2026-03-15"
       const todayStr = new Date().toISOString().split('T')[0];
       const cacheKey = `${userId}-${todayStr}`;
@@ -65,12 +66,12 @@ export async function GET(request: Request) {
 
           const result = await model.generateContent(prompt);
           const text = result.response.text();
-          
+
           // Strip any markdown blocks if Gemini formats it as code
           const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-          
+
           geminiData = JSON.parse(cleanText);
-          
+
           // Store in Cache so it doesn't run again today for this user
           dailyCache.set(cacheKey, geminiData);
         } catch (err) {
@@ -104,7 +105,7 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error('Dashboard Proxy Error:', error);
     return NextResponse.json(
-      { error: 'Failed to connect to backend database' }, 
+      { error: 'Failed to connect to backend database' },
       { status: 500 }
     );
   }
