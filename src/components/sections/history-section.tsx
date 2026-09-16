@@ -97,10 +97,12 @@ export function HistorySection() {
     setLoading(true);
     try {
       const res = await authedFetch('/api/history');
+      if (res.status === 401 || res.status === 403) return;
       if (!res.ok) throw new Error('Failed to load history');
       const json = await res.json();
       setData(json);
     } catch (e) {
+      if (e instanceof Error && (e.message.toLowerCase().includes('token') || e.message.includes('401'))) return;
       toast({
         title: 'Error loading history',
         description: e instanceof Error ? e.message : 'Unknown error',

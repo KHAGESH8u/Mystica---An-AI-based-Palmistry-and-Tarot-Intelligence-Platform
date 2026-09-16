@@ -24,16 +24,13 @@ services:
       dockerfile: Dockerfile
     container_name: mystica-backend
     restart: always
-    # 👉 This intercepts ONLY the CMD at the end of your Dockerfile
-    command: sh -c "python -m prisma db push && uvicorn main:app --host 0.0.0.0 --port 8000"
-    environment:
-      - DATABASE_URL=postgresql://admin:mystica_secret_password@postgres:5432/mystica_auth
-      - PALM_SERVICE_URL=http://palmistry-ai:8001
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    env_file:
+      - ./backend/.env
     ports:
       - "8000:8000"
       - "5555:5555"
     depends_on:
-      - postgres
       - palmistry-ai
     networks:
       - mystica-net
