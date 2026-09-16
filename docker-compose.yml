@@ -56,7 +56,7 @@ services:
     restart: always
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
-      - BACKEND_URL=http://backend:8000
+      - BACKEND_URL=https://mystica-backend.onrender.com
       - PALMISTRY_API_URL=http://palmistry-ai:8001
       - GEMINI_API_KEY=${GEMINI_API_KEY}
     ports:

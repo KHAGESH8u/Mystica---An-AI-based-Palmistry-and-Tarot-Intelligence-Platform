@@ -7,7 +7,7 @@ RUN npm ci
 
 COPY . .
 
-ENV BACKEND_URL="http://backend:8000"
+ENV BACKEND_URL="https://mystica-backend.onrender.com"
 
 RUN npm run build
 
