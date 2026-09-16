@@ -75,7 +75,9 @@ Guidelines:
     
     if (authHeader) {
       try {
-        await fetch('${process.env.BACKEND_URL || https://mystica-backend.onrender.com}/api/readings', {
+        const backendUrl = process.env.BACKEND_URL || 'https://mystica-backend.onrender.com';
+
+        await fetch(backendUrl + '/api/readings', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
