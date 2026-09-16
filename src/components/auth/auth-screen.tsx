@@ -76,13 +76,9 @@ export function AuthScreen() {
         const userRole = loggedInUser.role.toLowerCase();
         
         if (userRole === 'admin') {
-          router.push('/admin'); // Admin goes to Command Center
-        } else if (userRole.includes('consultant') || userRole.includes('reader')) {
-          router.push('/specialist-dashboard'); // Specialists to queue
-        } else if (!loggedInUser.isInitiated) {
-          router.push('/onboarding'); // New users to goals
+          router.push('/admin');
         } else {
-          router.push('/dashboard'); // Returning users to vault
+          router.push('/');
         }
 
       } else {
