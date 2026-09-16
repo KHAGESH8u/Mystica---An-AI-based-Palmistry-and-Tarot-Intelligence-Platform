@@ -28,7 +28,7 @@ export default function AdminDashboard() {
         const res = await authedFetch('/api/admin/dashboard-overview');
         
         if (res.status === 403 || res.status === 401) {
-          router.push('/dashboard');
+          router.push('/');
           return;
         }
         
@@ -37,7 +37,7 @@ export default function AdminDashboard() {
         }
       } catch (error) {
         console.error("Failed to verify admin status", error);
-        router.push('/dashboard');
+        router.push('/');
       } finally {
         setIsVerifying(false);
       }
