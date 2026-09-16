@@ -16,8 +16,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const backendUrl = process.env.BACKEND_URL || 'http://backend:8000';
-    
+    const backendUrl = process.env.BACKEND_URL || 'https://mystica-backend.onrender.com';
     // 3. Forward the request to FastAPI
     const response = await fetch(`${backendUrl}/api/admin/palm-analytics`, {
       method: 'GET',
