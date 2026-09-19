@@ -101,9 +101,6 @@ function ConsultationCardView({ card }: { card: ConsultationCard }) {
         </div>
 
         <div className="w-full text-center mt-1">
-          <div className="font-display text-xs md:text-sm font-bold leading-tight truncate px-1">
-            {card.name}
-          </div>
           <div
             className={cn(
               'inline-block text-[9px] px-2 py-0.5 rounded-full mt-1',
