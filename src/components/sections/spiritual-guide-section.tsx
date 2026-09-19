@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2, Clock, User, Brain,
@@ -50,7 +50,9 @@ interface ClientCase {
   insights: {
     overallInterpretation: string;
     palmImageUrl?: string | null;
+    palmDate?: string | null;
     tarotCards?: TarotCardData[] | null;
+    tarotDate?: string | null;
     scores: {
       palmConfidence: number;
       tarotRelevance: number;
@@ -155,19 +157,29 @@ export function SpiritualGuideSection() {
       const newCases: ClientCase[] = data.map((t: any) => {
         const profileData = t.client?.profile || {};
         
-        // Safely parse rawData to extract Palm and Tarot info
-        let rawData: any = {};
-        try { 
-          rawData = typeof t.reading?.rawData === 'string' ? JSON.parse(t.reading.rawData) : (t.reading?.rawData || {}); 
-        } catch(e) {}
+        // 1. Process Latest Palm Data
+        let palmImage = null;
+        let palmDate = null;
+        if (t.latestPalm) {
+          let raw: any = {}; // <-- Added : any here
+          try { raw = typeof t.latestPalm.rawData === 'string' ? JSON.parse(t.latestPalm.rawData) : (t.latestPalm.rawData || {}); } catch(e) {}
+          palmImage = raw.image_url || raw.imageUrl || t.latestPalm.imageUrl || null;
+          palmDate = t.latestPalm.createdAt;
+        }
 
-        const palmImage = rawData.image_url || rawData.imageUrl || t.reading?.imageUrl || null;
-        
-        const tarotCards = Array.isArray(rawData.draw) ? rawData.draw.map((d: any) => ({
-          name: d.cardId ? d.cardId.replace('major-', '').replace('minor-', '').replace(/-/g, ' ').toUpperCase() : 'Card',
-          orientation: d.orientation === 'reversed' ? 'Reversed' : 'Upright',
-          position: d.position || 'Drawn Card'
-        })) : null;
+        // 2. Process Latest Tarot Data
+        let tarotCards = null;
+        let tarotDate = null;
+        if (t.latestTarot) {
+          let raw: any = {}; // <-- Added : any here
+          try { raw = typeof t.latestTarot.rawData === 'string' ? JSON.parse(t.latestTarot.rawData) : (t.latestTarot.rawData || {}); } catch(e) {}
+          tarotCards = Array.isArray(raw.draw) ? raw.draw.map((d: any) => ({
+            name: d.cardId ? d.cardId.replace('major-', '').replace('minor-', '').replace(/-/g, ' ').toUpperCase() : 'Card',
+            orientation: d.orientation === 'reversed' ? 'Reversed' : 'Upright',
+            position: d.position || 'Drawn Card'
+          })) : null;
+          tarotDate = t.latestTarot.createdAt;
+        }
 
         return {
           consultation: {
@@ -187,7 +199,9 @@ export function SpiritualGuideSection() {
           insights: {
             overallInterpretation: t.reading?.summary || t.reading?.personalitySynthesis || 'AI interpretation pending deeper review.',
             palmImageUrl: palmImage,
+            palmDate: palmDate,
             tarotCards: tarotCards,
+            tarotDate: tarotDate,
             scores: { palmConfidence: 85, tarotRelevance: 92, personalityAlignment: 88, contextRelevance: 90, overall: 89 }
           },
           specialistNotes: t.specialistNotes || '',
@@ -459,73 +473,91 @@ export function SpiritualGuideSection() {
                     </div>
                   </Card>
 
-                  {/* DIVINATION SOURCES (Replaced Trend Charts) */}
-                  {(selectedCase.insights.palmImageUrl || (selectedCase.insights.tarotCards && selectedCase.insights.tarotCards.length > 0)) && (
-                    <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-4">
-                      <div className="flex items-center gap-2.5 pb-3 border-b border-border/50">
-                        <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
-                          <Globe className="w-4.5 h-4.5" />
-                        </div>
-                        <div>
-                          <h3 className="font-display text-lg font-bold text-foreground">Divination Sources</h3>
-                          <p className="text-xs text-muted-foreground">Client's submitted palm and tarot data for holistic review</p>
-                        </div>
+                  {/* DIVINATION SOURCES */}
+                  <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-4">
+                    <div className="flex items-center gap-2.5 pb-3 border-b border-border/50">
+                      <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
+                        <Globe className="w-4.5 h-4.5" />
                       </div>
-                      
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Palm Image */}
-                        {selectedCase.insights.palmImageUrl && (
-                          <div className="space-y-3">
-                            <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-2">
-                              <Hand className="w-4 h-4 text-primary"/> Palm Scan
-                            </h4>
-                            <div className="relative rounded-xl overflow-hidden border border-border/50 bg-black/40 flex items-center justify-center p-2 min-h-[260px]">
-                              <img 
-                                src={selectedCase.insights.palmImageUrl} 
-                                alt="Palm scan" 
-                                className="max-h-[250px] w-auto object-contain rounded-lg"
-                                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                              />
-                            </div>
+                      <div>
+                        <h3 className="font-display text-lg font-bold text-foreground">Divination Sources</h3>
+                        <p className="text-xs text-muted-foreground">Client's submitted palm and tarot data for holistic review</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Palm Image */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center justify-between w-full">
+                          <span className="flex items-center gap-2"><Hand className="w-4 h-4 text-primary"/> Palm Scan</span>
+                          {selectedCase.insights.palmDate && (
+                            <span className="text-[10px] bg-secondary/50 px-2 py-0.5 rounded border border-border/50">
+                              {formatDistanceToNow(new Date(selectedCase.insights.palmDate), { addSuffix: true })}
+                            </span>
+                          )}
+                        </h4>
+                        {selectedCase.insights.palmImageUrl ? (
+                          <div className="relative rounded-xl overflow-hidden border border-border/50 bg-black/40 flex items-center justify-center p-2 min-h-[260px]">
+                            <img 
+                              src={selectedCase.insights.palmImageUrl} 
+                              alt="Palm scan" 
+                              className="max-h-[250px] w-auto object-contain rounded-lg"
+                              onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-[260px] rounded-xl border border-dashed border-border/50 bg-background/20 text-muted-foreground">
+                            <Hand className="w-8 h-8 mb-2 opacity-20" />
+                            <p className="text-xs">No palm scan attached</p>
                           </div>
                         )}
+                      </div>
 
-                        {/* Tarot Cards */}
-                        {selectedCase.insights.tarotCards && selectedCase.insights.tarotCards.length > 0 && (
-                          <div className="space-y-3">
-                            <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-2">
-                              <Layers className="w-4 h-4 text-primary"/> Tarot Spread
-                            </h4>
-                            <div className="grid grid-cols-3 gap-3">
-                              {selectedCase.insights.tarotCards.map((card, idx) => {
-                                const reversed = card.orientation === 'Reversed';
-                                return (
-                                  <div key={idx} className="flex flex-col items-center">
-                                    <div className="text-[9px] uppercase tracking-wider text-primary text-center mb-1.5 font-medium truncate w-full">
-                                      {card.position}
-                                    </div>
-                                    <div className="relative aspect-[2/3.4] w-full rounded-md overflow-hidden border border-primary/40 bg-gradient-to-br from-secondary/80 to-background flex items-center justify-center p-1.5">
-                                      <img 
-                                        src={getCardImagePath(card.name)} 
-                                        className={`max-h-full max-w-full object-contain ${reversed ? 'rotate-180' : ''}`}
-                                        alt={card.name} 
-                                      />
-                                    </div>
-                                    <div className="text-[10px] font-bold mt-1.5 text-center truncate w-full">
-                                      {card.name}
-                                    </div>
-                                    <div className={`text-[9px] px-2 py-0.5 rounded-full mt-1 ${reversed ? 'bg-destructive/20 text-destructive' : 'bg-primary/20 text-primary'}`}>
-                                      {card.orientation}
-                                    </div>
+                      {/* Tarot Cards */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center justify-between w-full">
+                          <span className="flex items-center gap-2"><Layers className="w-4 h-4 text-primary"/> Tarot Spread</span>
+                          {selectedCase.insights.tarotDate && (
+                            <span className="text-[10px] bg-secondary/50 px-2 py-0.5 rounded border border-border/50">
+                              {formatDistanceToNow(new Date(selectedCase.insights.tarotDate), { addSuffix: true })}
+                            </span>
+                          )}
+                        </h4>
+                        {selectedCase.insights.tarotCards && selectedCase.insights.tarotCards.length > 0 ? (
+                          <div className="grid grid-cols-3 gap-3">
+                            {selectedCase.insights.tarotCards.map((card, idx) => {
+                              const reversed = card.orientation === 'Reversed';
+                              return (
+                                <div key={idx} className="flex flex-col items-center">
+                                  <div className="text-[9px] uppercase tracking-wider text-primary text-center mb-1.5 font-medium truncate w-full">
+                                    {card.position}
                                   </div>
-                                )
-                              })}
-                            </div>
+                                  <div className="relative aspect-[2/3.4] w-full rounded-md overflow-hidden border border-primary/40 bg-gradient-to-br from-secondary/80 to-background flex items-center justify-center p-1.5">
+                                    <img 
+                                      src={getCardImagePath(card.name)} 
+                                      className={`max-h-full max-w-full object-contain ${reversed ? 'rotate-180' : ''}`}
+                                      alt={card.name} 
+                                    />
+                                  </div>
+                                  <div className="text-[10px] font-bold mt-1.5 text-center truncate w-full">
+                                    {card.name}
+                                  </div>
+                                  <div className={`text-[9px] px-2 py-0.5 rounded-full mt-1 ${reversed ? 'bg-destructive/20 text-destructive' : 'bg-primary/20 text-primary'}`}>
+                                    {card.orientation}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-[260px] rounded-xl border border-dashed border-border/50 bg-background/20 text-muted-foreground">
+                            <Layers className="w-8 h-8 mb-2 opacity-20" />
+                            <p className="text-xs">No tarot spread attached</p>
                           </div>
                         )}
                       </div>
-                    </Card>
-                  )}
+                    </div>
+                  </Card>
 
                   {/* AI HOLISTIC SCORES */}
                   <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-4">
