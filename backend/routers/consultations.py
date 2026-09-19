@@ -89,6 +89,43 @@ async def get_consultations(user=Depends(get_current_user)):
         include={"client": {"include": {"profile": True}}, "reading": True},
         order={"createdAt": "desc"},
     )
+
+    # Securely staple each client's latest divination data for the Spiritual Guide
+    if specialist_type == "spiritual_consultant":
+        enriched_tickets = []
+        for ticket in tickets:
+            t_dict = ticket.model_dump() if hasattr(ticket, "model_dump") else dict(ticket)
+
+            # Fetch recent readings for this specific seeker
+            user_history = await db.reading.find_many(
+                where={"userId": ticket.clientId},
+                order={"createdAt": "desc"},
+                take=10,
+            )
+
+            # Match on readingType as defined in schema.prisma
+            latest_palm = next(
+                (r for r in user_history if r.readingType and r.readingType.lower() == "palm"),
+                None,
+            )
+            latest_tarot = next(
+                (r for r in user_history if r.readingType and r.readingType.lower() == "tarot"),
+                None,
+            )
+
+            t_dict["latestPalm"] = (
+                latest_palm.model_dump() if hasattr(latest_palm, "model_dump")
+                else (dict(latest_palm) if latest_palm else None)
+            )
+            t_dict["latestTarot"] = (
+                latest_tarot.model_dump() if hasattr(latest_tarot, "model_dump")
+                else (dict(latest_tarot) if latest_tarot else None)
+            )
+
+            enriched_tickets.append(t_dict)
+
+        return enriched_tickets
+
     return tickets
 
 
