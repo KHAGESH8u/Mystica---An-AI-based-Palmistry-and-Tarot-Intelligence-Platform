@@ -52,15 +52,21 @@ const AUTHORIZED_ROLES = ['tarot_reader', 'admin', 'Tarot Reader', 'Administrato
 
 const getCardImagePath = (cardName: string) => {
   const clean = cardName.toLowerCase().trim();
-  if (/^[cm]\d{2}$/.test(clean)) {
-    return `/cards/${clean}.png`;
+  
+  // 1. Matches ANY valid card ID (c=cups, m=major, w=wands, s=swords, p=pentacles)
+  if (/^[cmwsp]\d{2}$/.test(clean)) {
+    return `/cards/${clean}.jpg`;
   }
-  if (clean.includes('fool')) return '/cards/m00.png';
-  if (clean.includes('magician')) return '/cards/m01.png';
-  if (clean.includes('high priestess')) return '/cards/m02.png';
-  if (clean.includes('empress')) return '/cards/m03.png';
-  if (clean.includes('emperor')) return '/cards/m04.png';
-  return `/cards/c01.png`;
+  
+  // 2. Name fallbacks mapped correctly to .jpg
+  if (clean.includes('fool')) return '/cards/m00.jpg';
+  if (clean.includes('magician')) return '/cards/m01.jpg';
+  if (clean.includes('high priestess')) return '/cards/m02.jpg';
+  if (clean.includes('empress')) return '/cards/m03.jpg';
+  if (clean.includes('emperor')) return '/cards/m04.jpg';
+  
+  // 3. Safe fallback to a known .jpg instead of a broken .png
+  return `/cards/m00.jpg`; 
 };
 
 function ConsultationCardView({ card }: { card: ConsultationCard }) {
@@ -95,9 +101,6 @@ function ConsultationCardView({ card }: { card: ConsultationCard }) {
         </div>
 
         <div className="w-full text-center mt-1">
-          <div className="font-display text-xs md:text-sm font-bold leading-tight truncate px-1">
-            {card.name}
-          </div>
           <div
             className={cn(
               'inline-block text-[9px] px-2 py-0.5 rounded-full mt-1',

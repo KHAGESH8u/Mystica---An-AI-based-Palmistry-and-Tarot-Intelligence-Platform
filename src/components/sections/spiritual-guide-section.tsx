@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  CheckCircle2, Clock, User, Heart, TrendingUp, Brain,
-  Sparkles, Save, Send, ShieldAlert, Loader2, Globe,
-  Search, FileText, FileEdit, RefreshCw, ArrowRight
+  CheckCircle2, Clock, User, Brain,
+  Save, Send, ShieldAlert, Loader2, Globe,
+  Search, FileText, FileEdit, RefreshCw, ArrowRight,
+  Hand, Layers
 } from 'lucide-react';
 
 import { Card } from '@/components/ui/card';
@@ -16,10 +17,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, useAuthedFetch } from '@/components/auth/auth-provider';
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-} from 'recharts';
 
 // =====================================================================
 // 1. TYPES & INTERFACES
@@ -36,12 +33,10 @@ interface Consultation {
   status: ConsultationStatus;
 }
 
-interface TrendPoint {
-  session: string;
-  personalGrowth: number;
-  careerClarity: number;
-  relationship: number;
-  selfReflection: number;
+interface TarotCardData {
+  name: string;
+  orientation: 'Upright' | 'Reversed';
+  position: string;
 }
 
 interface ClientCase {
@@ -54,6 +49,10 @@ interface ClientCase {
   };
   insights: {
     overallInterpretation: string;
+    palmImageUrl?: string | null;
+    palmDate?: string | null;
+    tarotCards?: TarotCardData[] | null;
+    tarotDate?: string | null;
     scores: {
       palmConfidence: number;
       tarotRelevance: number;
@@ -62,7 +61,6 @@ interface ClientCase {
       overall: number;
     };
   };
-  trends: TrendPoint[];
   specialistNotes?: string;
 }
 
@@ -85,8 +83,19 @@ const EMPTY_FORM: ConsultantForm = {
 };
 
 // =====================================================================
-// 2. HELPER COMPONENTS
+// 2. HELPER FUNCTIONS & COMPONENTS
 // =====================================================================
+
+const getCardImagePath = (cardName: string) => {
+  const clean = cardName.toLowerCase().trim();
+  if (/^[cmwsp]\d{2}$/.test(clean)) return `/cards/${clean}.jpg`;
+  if (clean.includes('fool')) return '/cards/m00.jpg';
+  if (clean.includes('magician')) return '/cards/m01.jpg';
+  if (clean.includes('high priestess')) return '/cards/m02.jpg';
+  if (clean.includes('empress')) return '/cards/m03.jpg';
+  if (clean.includes('emperor')) return '/cards/m04.jpg';
+  return `/cards/m00.jpg`; 
+};
 
 function MetricCard({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
   const circumference = 2 * Math.PI * 24;
@@ -121,8 +130,6 @@ export function SpiritualGuideSection() {
   const [searchTerm, setSearchTerm] = useState('');
   const [form, setForm] = useState<ConsultantForm>(EMPTY_FORM);
   const [loading, setLoading] = useState(true);
-
-  // 👇 --- INSERT THIS NEW BLOCK --- 👇
   const [stats, setStats] = useState({ pending: 0, completedAllTime: 0 });
 
   const fetchStats = useCallback(async () => {
@@ -137,21 +144,43 @@ export function SpiritualGuideSection() {
       console.error(err);
     }
   }, [authedFetch, user]);
-  // 👆 ------------------------------- 👆
 
   const fetchQueue = useCallback(async () => {
-    // FIX: Silent abort if the user is logging out or not authenticated
     if (!user) return; 
 
     setLoading(true);
     try {
       const res = await authedFetch('/api/consultations');
-      // ... rest of your code ...
       if (!res.ok) throw new Error('Failed to fetch queue');
       const data = await res.json();
 
       const newCases: ClientCase[] = data.map((t: any) => {
         const profileData = t.client?.profile || {};
+        
+        // 1. Process Latest Palm Data
+        let palmImage = null;
+        let palmDate = null;
+        if (t.latestPalm) {
+          let raw: any = {}; // <-- Added : any here
+          try { raw = typeof t.latestPalm.rawData === 'string' ? JSON.parse(t.latestPalm.rawData) : (t.latestPalm.rawData || {}); } catch(e) {}
+          palmImage = raw.image_url || raw.imageUrl || t.latestPalm.imageUrl || null;
+          palmDate = t.latestPalm.createdAt;
+        }
+
+        // 2. Process Latest Tarot Data
+        let tarotCards = null;
+        let tarotDate = null;
+        if (t.latestTarot) {
+          let raw: any = {}; // <-- Added : any here
+          try { raw = typeof t.latestTarot.rawData === 'string' ? JSON.parse(t.latestTarot.rawData) : (t.latestTarot.rawData || {}); } catch(e) {}
+          tarotCards = Array.isArray(raw.draw) ? raw.draw.map((d: any) => ({
+            name: d.cardId ? d.cardId.replace('major-', '').replace('minor-', '').replace(/-/g, ' ').toUpperCase() : 'Card',
+            orientation: d.orientation === 'reversed' ? 'Reversed' : 'Upright',
+            position: d.position || 'Drawn Card'
+          })) : null;
+          tarotDate = t.latestTarot.createdAt;
+        }
+
         return {
           consultation: {
             id: t.id,
@@ -168,13 +197,13 @@ export function SpiritualGuideSection() {
             previousSessions: 1, 
           },
           insights: {
-            overallInterpretation: t.reading?.summary || 'AI interpretation pending deeper review. Connect the client\'s Palm and Tarot history for a full synthesis.',
+            overallInterpretation: t.reading?.summary || t.reading?.personalitySynthesis || 'AI interpretation pending deeper review.',
+            palmImageUrl: palmImage,
+            palmDate: palmDate,
+            tarotCards: tarotCards,
+            tarotDate: tarotDate,
             scores: { palmConfidence: 85, tarotRelevance: 92, personalityAlignment: 88, contextRelevance: 90, overall: 89 }
           },
-          trends: [
-            { session: 'Last', personalGrowth: 50, careerClarity: 50, relationship: 50, selfReflection: 50 },
-            { session: 'Now', personalGrowth: 60, careerClarity: 55, relationship: 60, selfReflection: 65 }
-          ],
           specialistNotes: t.specialistNotes || '',
         };
       });
@@ -190,12 +219,12 @@ export function SpiritualGuideSection() {
     } finally {
       setLoading(false);
     }
-  }, [authedFetch, selectedId]);
+  }, [authedFetch, selectedId, user]);
 
   useEffect(() => {
     fetchQueue();
-    fetchStats(); // <-- Added
-  }, [fetchQueue, fetchStats]); // <-- Added
+    fetchStats();
+  }, [fetchQueue, fetchStats]);
 
   const selectedCase = useMemo(
     () => clientCases.find((c) => c.consultation.id === selectedId) || null,
@@ -217,7 +246,6 @@ export function SpiritualGuideSection() {
       return;
     }
 
-    // 1. Format the notes cleanly (Notice we deleted the old 'payload' variable entirely)
     const formattedNotes = `✦ SPIRITUAL REMEDIES:\n${form.spiritualRemedies}\n\n✦ LIFESTYLE ADVICE:\n${form.lifestyleAdvice}\n\n✦ CONSULTANT NOTES:\n${form.notes}`;
 
     try {
@@ -275,7 +303,7 @@ export function SpiritualGuideSection() {
     <div className="relative z-10 w-full pb-20">
       <div className="space-y-6">
         
-        {/* STANDARDIZED HEADER */}
+        {/* HEADER */}
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
@@ -296,7 +324,6 @@ export function SpiritualGuideSection() {
           </div>
 
           <div className="flex items-center gap-6">
-            {/* THE NEW METRIC CARDS */}
             <div className="hidden md:flex items-center gap-4 mr-4">
               <div className="text-center px-4 border-r border-border/50">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Pending</p>
@@ -308,24 +335,16 @@ export function SpiritualGuideSection() {
               </div>
             </div>
 
-            {/* SYNC BUTTON */}
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => { fetchQueue(); fetchStats(); }} 
-              disabled={loading} 
-              className="border-border/60 text-xs"
-            >
+            <Button variant="outline" size="sm" onClick={() => { fetchQueue(); fetchStats(); }} disabled={loading} className="border-border/60 text-xs">
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
               Sync Queue
             </Button>
           </div>
         </div>
 
-        {/* STANDARDIZED SPLIT VIEW */}
         <div className="grid lg:grid-cols-12 gap-6">
           
-          {/* QUEUE (LEFT COLUMN) */}
+          {/* QUEUE */}
           <div className="lg:col-span-4 h-full">
             <Card className="bg-card/60 backdrop-blur border-border/50 p-5 flex flex-col h-full">
               <div className="flex items-center justify-between pb-4 border-b border-border/50 gap-2">
@@ -401,7 +420,7 @@ export function SpiritualGuideSection() {
             </Card>
           </div>
 
-          {/* WORKSPACE (RIGHT COLUMN) */}
+          {/* WORKSPACE */}
           <div className="lg:col-span-8 space-y-6">
             {!selectedCase ? (
               <Card className="bg-card/60 backdrop-blur border-border/50 p-12 text-center text-muted-foreground flex flex-col items-center justify-center min-h-[450px]">
@@ -454,6 +473,92 @@ export function SpiritualGuideSection() {
                     </div>
                   </Card>
 
+                  {/* DIVINATION SOURCES */}
+                  <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-4">
+                    <div className="flex items-center gap-2.5 pb-3 border-b border-border/50">
+                      <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
+                        <Globe className="w-4.5 h-4.5" />
+                      </div>
+                      <div>
+                        <h3 className="font-display text-lg font-bold text-foreground">Divination Sources</h3>
+                        <p className="text-xs text-muted-foreground">Client's submitted palm and tarot data for holistic review</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Palm Image */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center justify-between w-full">
+                          <span className="flex items-center gap-2"><Hand className="w-4 h-4 text-primary"/> Palm Scan</span>
+                          {selectedCase.insights.palmDate && (
+                            <span className="text-[10px] bg-secondary/50 px-2 py-0.5 rounded border border-border/50">
+                              {formatDistanceToNow(new Date(selectedCase.insights.palmDate), { addSuffix: true })}
+                            </span>
+                          )}
+                        </h4>
+                        {selectedCase.insights.palmImageUrl ? (
+                          <div className="relative rounded-xl overflow-hidden border border-border/50 bg-black/40 flex items-center justify-center p-2 min-h-[260px]">
+                            <img 
+                              src={selectedCase.insights.palmImageUrl} 
+                              alt="Palm scan" 
+                              className="max-h-[250px] w-auto object-contain rounded-lg"
+                              onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-[260px] rounded-xl border border-dashed border-border/50 bg-background/20 text-muted-foreground">
+                            <Hand className="w-8 h-8 mb-2 opacity-20" />
+                            <p className="text-xs">No palm scan attached</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Tarot Cards */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center justify-between w-full">
+                          <span className="flex items-center gap-2"><Layers className="w-4 h-4 text-primary"/> Tarot Spread</span>
+                          {selectedCase.insights.tarotDate && (
+                            <span className="text-[10px] bg-secondary/50 px-2 py-0.5 rounded border border-border/50">
+                              {formatDistanceToNow(new Date(selectedCase.insights.tarotDate), { addSuffix: true })}
+                            </span>
+                          )}
+                        </h4>
+                        {selectedCase.insights.tarotCards && selectedCase.insights.tarotCards.length > 0 ? (
+                          <div className="grid grid-cols-3 gap-3">
+                            {selectedCase.insights.tarotCards.map((card, idx) => {
+                              const reversed = card.orientation === 'Reversed';
+                              return (
+                                <div key={idx} className="flex flex-col items-center">
+                                  <div className="text-[9px] uppercase tracking-wider text-primary text-center mb-1.5 font-medium truncate w-full">
+                                    {card.position}
+                                  </div>
+                                  <div className="relative aspect-[2/3.4] w-full rounded-md overflow-hidden border border-primary/40 bg-gradient-to-br from-secondary/80 to-background flex items-center justify-center p-1.5">
+                                    <img 
+                                      src={getCardImagePath(card.name)} 
+                                      className={`max-h-full max-w-full object-contain ${reversed ? 'rotate-180' : ''}`}
+                                      alt={card.name} 
+                                    />
+                                  </div>
+                                  <div className="text-[10px] font-bold mt-1.5 text-center truncate w-full">
+                                    {card.name}
+                                  </div>
+                                  <div className={`text-[9px] px-2 py-0.5 rounded-full mt-1 ${reversed ? 'bg-destructive/20 text-destructive' : 'bg-primary/20 text-primary'}`}>
+                                    {card.orientation}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-[260px] rounded-xl border border-dashed border-border/50 bg-background/20 text-muted-foreground">
+                            <Layers className="w-8 h-8 mb-2 opacity-20" />
+                            <p className="text-xs">No tarot spread attached</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+
                   {/* AI HOLISTIC SCORES */}
                   <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-4">
                     <div className="flex items-center gap-2.5 pb-3 border-b border-border/50">
@@ -478,41 +583,6 @@ export function SpiritualGuideSection() {
                       <p className="text-sm leading-relaxed text-slate-200 font-normal whitespace-pre-line">
                         {selectedCase.insights.overallInterpretation}
                       </p>
-                    </div>
-                  </Card>
-
-                  {/* TREND GRAPH */}
-                  <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-4">
-                    <div className="flex items-center gap-2.5 pb-3 border-b border-border/50">
-                      <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
-                        <TrendingUp className="w-4.5 h-4.5" />
-                      </div>
-                      <div>
-                        <h3 className="font-display text-lg font-bold text-foreground">Growth Trajectory</h3>
-                        <p className="text-xs text-muted-foreground">Client's alignment across recent sessions</p>
-                      </div>
-                    </div>
-                    <div className="h-64 w-full bg-background/30 rounded-xl p-4 border border-border/50">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={selectedCase.trends} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="gGrowth" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#d4af37" stopOpacity={0.5} />
-                              <stop offset="100%" stopColor="#d4af37" stopOpacity={0} />
-                            </linearGradient> 
-                            <linearGradient id="gCareer" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#a855f7" stopOpacity={0.4} />
-                              <stop offset="100%" stopColor="#a855f7" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#555" strokeOpacity={0.4} />
-                          <XAxis dataKey="session" tick={{ fill: '#999', fontSize: 12 }} axisLine={false} tickLine={false} />
-                          <YAxis domain={[0, 100]} tick={{ fill: '#999', fontSize: 12 }} axisLine={false} tickLine={false} />
-                          <RechartsTooltip contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #444', borderRadius: 12, color: '#fff', fontSize: 12 }} />
-                          <Area type="monotone" dataKey="personalGrowth" name="Personal Growth" stroke="#d4af37" fill="url(#gGrowth)" strokeWidth={2} />
-                          <Area type="monotone" dataKey="careerClarity" name="Career Clarity" stroke="#a855f7" fill="url(#gCareer)" strokeWidth={2} />
-                        </AreaChart>
-                      </ResponsiveContainer>
                     </div>
                   </Card>
 
