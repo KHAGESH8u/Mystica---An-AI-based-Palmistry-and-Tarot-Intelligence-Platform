@@ -153,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
+      window.location.reload(); // Instantly refreshes the SPA back to the login state
     }
     setUser(null);
   }, []);

@@ -96,6 +96,15 @@ async def get_consultations(user=Depends(get_current_user)):
         for ticket in tickets:
             t_dict = ticket.model_dump() if hasattr(ticket, "model_dump") else dict(ticket)
 
+            # 👇 THE FIX: Re-attach the nested data that dict() accidentally dropped
+            if getattr(ticket, "client", None):
+                t_dict["client"] = ticket.client.model_dump() if hasattr(ticket.client, "model_dump") else dict(ticket.client)
+                if getattr(ticket.client, "profile", None):
+                    t_dict["client"]["profile"] = ticket.client.profile.model_dump() if hasattr(ticket.client.profile, "model_dump") else dict(ticket.client.profile)
+            if getattr(ticket, "reading", None):
+                t_dict["reading"] = ticket.reading.model_dump() if hasattr(ticket.reading, "model_dump") else dict(ticket.reading)
+            # 👆 END OF FIX
+
             # Fetch recent readings for this specific seeker
             user_history = await db.reading.find_many(
                 where={"userId": ticket.clientId},

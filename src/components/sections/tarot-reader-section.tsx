@@ -52,66 +52,72 @@ const AUTHORIZED_ROLES = ['tarot_reader', 'admin', 'Tarot Reader', 'Administrato
 
 const getCardImagePath = (cardName: string) => {
   const clean = cardName.toLowerCase().trim();
-  
+
   // 1. Matches ANY valid card ID (c=cups, m=major, w=wands, s=swords, p=pentacles)
   if (/^[cmwsp]\d{2}$/.test(clean)) {
     return `/cards/${clean}.jpg`;
   }
-  
+
   // 2. Name fallbacks mapped correctly to .jpg
   if (clean.includes('fool')) return '/cards/m00.jpg';
   if (clean.includes('magician')) return '/cards/m01.jpg';
   if (clean.includes('high priestess')) return '/cards/m02.jpg';
   if (clean.includes('empress')) return '/cards/m03.jpg';
   if (clean.includes('emperor')) return '/cards/m04.jpg';
-  
+
   // 3. Safe fallback to a known .jpg instead of a broken .png
-  return `/cards/m00.jpg`; 
+  return `/cards/m00.jpg`;
+};
+
+const formatCardName = (rawId: string) => {
+  const suits: Record<string, string> = { p: 'Pentacles', c: 'Cups', w: 'Wands', s: 'Swords', m: 'Major Arcana' };
+  const values: Record<string, string> = { '01': 'Ace', '11': 'Page', '12': 'Knight', '13': 'Queen', '14': 'King' };
+  const clean = rawId.toLowerCase().trim();
+  const suitPrefix = clean.charAt(0);
+  const numSuffix = clean.slice(1);
+
+  if (suits[suitPrefix] && numSuffix.match(/^\d{2}$/)) {
+    const valueName = values[numSuffix] || parseInt(numSuffix, 10).toString();
+    return `${valueName} of ${suits[suitPrefix]}`;
+  }
+  return rawId.replace('major-', '').replace('minor-', '').replace(/-/g, ' ').toUpperCase();
 };
 
 function ConsultationCardView({ card }: { card: ConsultationCard }) {
   const reversed = card.orientation === 'Reversed';
-  const imagePath = getCardImagePath(card.name);
+  const imagePath = getCardImagePath(card.name); // Uses the raw ID for the image path safely
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col items-center">
       {card.position && (
-        <div className="text-xs uppercase tracking-wider text-primary text-center mb-1.5 font-medium">
+        <div className="text-[10px] uppercase tracking-widest text-primary text-center mb-2 font-semibold truncate w-full">
           {card.position}
         </div>
       )}
-      <div
-        className={cn(
-          'relative aspect-[2/3.4] rounded-lg overflow-hidden border-2 border-primary/40 bg-gradient-to-br from-secondary/80 via-background/80 to-secondary/60 p-2 flex flex-col items-center justify-between shadow-xl',
-          reversed && 'tarot-reversed',
-        )}
-      >
-        <div className="w-full h-full flex-1 relative flex items-center justify-center overflow-hidden rounded-md my-1">
-          <img 
-            src={imagePath} 
-            alt={card.name}
-            className={cn(
-              "max-h-full max-w-full object-contain drop-shadow-md transition-transform duration-300",
-              reversed && "rotate-180"
-            )}
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-        </div>
 
-        <div className="w-full text-center mt-1">
-          <div
-            className={cn(
-              'inline-block text-[9px] px-2 py-0.5 rounded-full mt-1',
-              reversed
-                ? 'bg-destructive/20 text-destructive'
-                : 'bg-primary/20 text-primary',
-            )}
-          >
-            {card.orientation}
-          </div>
-        </div>
+      {/* Box ONLY contains the image now */}
+      <div className="relative aspect-[2/3.4] w-full rounded-lg overflow-hidden border-2 border-primary/40 bg-gradient-to-br from-secondary/80 via-background/80 to-secondary/60 p-1.5 flex items-center justify-center shadow-xl">
+        <img
+          src={imagePath}
+          alt={card.name}
+          className={cn(
+            "max-h-full max-w-full object-contain drop-shadow-md transition-transform duration-300",
+            reversed && "rotate-180" // Rotation works cleanly now
+          )}
+          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+        />
+      </div>
+
+      {/* Name and Badge are now cleanly outside */}
+      <div className="text-[11px] font-bold mt-2.5 text-center truncate w-full text-slate-200">
+        {formatCardName(card.name)}
+      </div>
+      <div className={cn(
+        'inline-block text-[9px] px-2 py-0.5 rounded-sm mt-1 font-semibold uppercase tracking-wider',
+        reversed ? 'bg-destructive/20 text-destructive' : 'bg-primary/20 text-primary'
+      )}
+      >
+        {card.orientation}
       </div>
     </div>
   );
@@ -120,7 +126,7 @@ function ConsultationCardView({ card }: { card: ConsultationCard }) {
 export function TarotReaderSection() {
   const { user } = useAuth();
   const authedFetch = useAuthedFetch();
-  
+
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
@@ -148,22 +154,23 @@ export function TarotReaderSection() {
     try {
       const res = await authedFetch('/api/consultations');
       if (res.status === 401) return;
-      
+
       if (!res.ok) throw new Error('Failed to fetch queue');
       const data = await res.json();
 
       const formattedTickets: Consultation[] = data.map((t: any) => {
         let rawData: any = {};
-        try { rawData = typeof t.reading?.rawData === 'string' ? JSON.parse(t.reading.rawData) : (t.reading?.rawData || {}); } catch(e) {}
-        
+        try { rawData = typeof t.reading?.rawData === 'string' ? JSON.parse(t.reading.rawData) : (t.reading?.rawData || {}); } catch (e) { }
+
         return {
           id: t.id,
           clientName: t.client?.name || 'Seeker',
           question: t.clientQuestion || 'Please interpret my recent draw.',
           spreadType: rawData.spreadName || 'Tarot Reading',
           cards: Array.isArray(rawData.draw) ? rawData.draw.map((d: any) => ({
-            name: d.cardId ? d.cardId.replace('major-', '').replace('minor-', '').replace(/-/g, ' ').toUpperCase() : 'Card',
-            orientation: d.orientation === 'reversed' ? 'Reversed' : 'Upright',
+            name: d.cardId || 'Card',
+            // The fix: safely lowercase the incoming database string so 'Reversed' matches 'reversed'
+            orientation: (d.orientation || '').toLowerCase() === 'reversed' ? 'Reversed' : 'Upright',
             position: d.position || 'Drawn Card',
             symbol: '✨'
           })) : [],
@@ -175,7 +182,7 @@ export function TarotReaderSection() {
       });
 
       setConsultations(formattedTickets);
-      
+
       const pending = formattedTickets.filter(c => c.status === 'pending');
       if (pending.length > 0 && !selectedId) {
         setSelectedId(pending[0].id);
@@ -211,10 +218,10 @@ export function TarotReaderSection() {
       const res = await authedFetch(`/api/consultations/${selected.id}/review`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          specialistNotes: notes, 
-          summary: "A Tarot Specialist has finalized your reading.", 
-          rating: 5 
+        body: JSON.stringify({
+          specialistNotes: notes,
+          summary: "A Tarot Specialist has finalized your reading.",
+          rating: 5
         })
       });
 
@@ -232,7 +239,7 @@ export function TarotReaderSection() {
         title: 'Review Completed',
         description: `${selected.clientName}'s consultation has been finalized.`,
       });
-      
+
       const remaining = consultations.filter(c => c.id !== selected.id && c.status === 'pending');
       if (remaining.length > 0) {
         setSelectedId(remaining[0].id);
@@ -272,7 +279,7 @@ export function TarotReaderSection() {
   return (
     <div className="relative z-10 w-full pb-20">
       <div className="space-y-6">
-        
+
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
@@ -304,11 +311,11 @@ export function TarotReaderSection() {
               </div>
             </div>
 
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => { fetchQueue(); fetchStats(); }} 
-              disabled={loading} 
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { fetchQueue(); fetchStats(); }}
+              disabled={loading}
               className="border-border/60 text-xs"
             >
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
@@ -318,7 +325,7 @@ export function TarotReaderSection() {
         </div>
 
         <div className="grid lg:grid-cols-12 gap-6">
-          
+
           <div className="lg:col-span-4 h-full">
             <Card className="bg-card/60 backdrop-blur border-border/50 p-5 flex flex-col h-full">
               <div className="flex items-center justify-between pb-4 border-b border-border/50 gap-2">
@@ -361,14 +368,13 @@ export function TarotReaderSection() {
                       initial={{ opacity: 0, y: 5 }}
                       animate={{ opacity: 1, y: 0 }}
                       onClick={() => openConsultation(ticket)}
-                      className={`p-3.5 rounded-xl border transition-all cursor-pointer group relative ${
-                        ticket.id === selectedId
+                      className={`p-3.5 rounded-xl border transition-all cursor-pointer group relative ${ticket.id === selectedId
                           ? 'border-primary bg-primary/10 shadow-lg shadow-primary/5'
                           : 'border-border/50 bg-background/40 hover:border-primary/40 hover:bg-secondary/30'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <span className="font-mono text-xs font-semibold text-primary">TAROT-{ticket.id.substring(0,6).toUpperCase()}</span>
+                        <span className="font-mono text-xs font-semibold text-primary">TAROT-{ticket.id.substring(0, 6).toUpperCase()}</span>
                         <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[10px] px-1.5 py-0">Pending</Badge>
                       </div>
 
@@ -404,13 +410,13 @@ export function TarotReaderSection() {
             ) : (
               <AnimatePresence mode="wait">
                 <motion.div key={selected.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-                  
+
                   <Card className="bg-card/60 backdrop-blur border-border/50 p-6 space-y-6">
                     <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border/50">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
-                            TAROT-{selected.id.substring(0,8).toUpperCase()}
+                            TAROT-{selected.id.substring(0, 8).toUpperCase()}
                           </span>
                           <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-amber-500/30">Pending</Badge>
                           <Badge variant="secondary" className="text-[11px] capitalize">{selected.spreadType}</Badge>
