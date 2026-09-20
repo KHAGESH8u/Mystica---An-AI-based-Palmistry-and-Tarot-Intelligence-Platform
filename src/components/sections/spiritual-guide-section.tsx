@@ -65,21 +65,13 @@ interface ClientCase {
 }
 
 interface ConsultantForm {
-  spiritualRemedies: string;
-  lifestyleAdvice: string;
   notes: string;
-  summary: string;
-  rating: number;
 }
 
 const AUTHORIZED_ROLES = ['spiritual_consultant', 'admin', 'Spiritual Consultant', 'Administrator'];
 
 const EMPTY_FORM: ConsultantForm = {
-  spiritualRemedies: '',
-  lifestyleAdvice: '',
   notes: '',
-  summary: '',
-  rating: 5,
 };
 
 // =====================================================================
@@ -95,6 +87,41 @@ const getCardImagePath = (cardName: string) => {
   if (clean.includes('empress')) return '/cards/m03.jpg';
   if (clean.includes('emperor')) return '/cards/m04.jpg';
   return `/cards/m00.jpg`; 
+};
+
+// 👇 ADDED BACK: The Tarot Name Translator 👇
+const formatCardName = (rawId: string) => {
+  const suits: Record<string, string> = { p: 'Pentacles', c: 'Cups', w: 'Wands', s: 'Swords', m: 'Major Arcana' };
+  const values: Record<string, string> = { '01': 'Ace', '11': 'Page', '12': 'Knight', '13': 'Queen', '14': 'King' };
+  const clean = rawId.toLowerCase().trim();
+  const suitPrefix = clean.charAt(0);
+  const numSuffix = clean.slice(1);
+
+  if (suits[suitPrefix] && numSuffix.match(/^\d{2}$/)) {
+    const valueName = values[numSuffix] || parseInt(numSuffix, 10).toString();
+    return `${valueName} of ${suits[suitPrefix]}`;
+  }
+  return rawId.replace('major-', '').replace('minor-', '').replace(/-/g, ' ').toUpperCase();
+};
+
+const renderFormattedText = (text: string) => {
+  if (!text) return null;
+  return text.split('\n').map((line, i) => {
+    if (line.startsWith('### ')) {
+      return <h4 key={i} className="text-sm font-bold mt-4 mb-2 text-primary">{line.replace('### ', '')}</h4>;
+    }
+    const parts = line.split(/(\*\*.*?\*\*)/g);
+    return (
+      <p key={i} className="mb-2 text-sm leading-relaxed text-slate-200 font-normal">
+        {parts.map((part, j) => {
+          if (part.startsWith('**') && part.endsWith('**')) {
+            return <strong key={j} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
+          }
+          return part;
+        })}
+      </p>
+    );
+  });
 };
 
 function MetricCard({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
@@ -157,21 +184,19 @@ export function SpiritualGuideSection() {
       const newCases: ClientCase[] = data.map((t: any) => {
         const profileData = t.client?.profile || {};
         
-        // 1. Process Latest Palm Data
         let palmImage = null;
         let palmDate = null;
         if (t.latestPalm) {
-          let raw: any = {}; // <-- Added : any here
+          let raw: any = {};
           try { raw = typeof t.latestPalm.rawData === 'string' ? JSON.parse(t.latestPalm.rawData) : (t.latestPalm.rawData || {}); } catch(e) {}
           palmImage = raw.image_url || raw.imageUrl || t.latestPalm.imageUrl || null;
           palmDate = t.latestPalm.createdAt;
         }
 
-        // 2. Process Latest Tarot Data
         let tarotCards = null;
         let tarotDate = null;
         if (t.latestTarot) {
-          let raw: any = {}; // <-- Added : any here
+          let raw: any = {};
           try { raw = typeof t.latestTarot.rawData === 'string' ? JSON.parse(t.latestTarot.rawData) : (t.latestTarot.rawData || {}); } catch(e) {}
           tarotCards = Array.isArray(raw.draw) ? raw.draw.map((d: any) => ({
             name: d.cardId ? d.cardId.replace('major-', '').replace('minor-', '').replace(/-/g, ' ').toUpperCase() : 'Card',
@@ -197,7 +222,7 @@ export function SpiritualGuideSection() {
             previousSessions: 1, 
           },
           insights: {
-            overallInterpretation: t.reading?.summary || t.reading?.personalitySynthesis || 'AI interpretation pending deeper review.',
+            overallInterpretation: t.reading?.personalitySynthesis || t.reading?.summary || 'AI interpretation pending deeper review.',
             palmImageUrl: palmImage,
             palmDate: palmDate,
             tarotCards: tarotCards,
@@ -241,21 +266,19 @@ export function SpiritualGuideSection() {
   };
 
   const handleSubmit = async () => {
-    if (!form.summary.trim() || !form.notes.trim()) {
-      toast({ title: 'Missing details', description: 'Please add notes and a summary.', variant: 'destructive' });
+    if (!form.notes.trim()) {
+      toast({ title: 'Missing details', description: 'Please add your guidance notes.', variant: 'destructive' });
       return;
     }
-
-    const formattedNotes = `✦ SPIRITUAL REMEDIES:\n${form.spiritualRemedies}\n\n✦ LIFESTYLE ADVICE:\n${form.lifestyleAdvice}\n\n✦ CONSULTANT NOTES:\n${form.notes}`;
 
     try {
       const res = await authedFetch(`/api/consultations/${selectedId}/review`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          specialistNotes: formattedNotes,
-          summary: form.summary,
-          rating: form.rating
+          specialistNotes: form.notes,
+          summary: "A Spiritual Guide has finalized your reading.",
+          rating: 5
         })
       });
 
@@ -276,7 +299,7 @@ export function SpiritualGuideSection() {
     }
   };
 
-  const updateForm = (key: keyof ConsultantForm, value: string | number) =>
+  const updateForm = (key: keyof ConsultantForm, value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
 
   const isAuthorized = !!user && AUTHORIZED_ROLES.includes(user.role);
@@ -539,10 +562,11 @@ export function SpiritualGuideSection() {
                                       alt={card.name} 
                                     />
                                   </div>
-                                  <div className="text-[10px] font-bold mt-1.5 text-center truncate w-full">
-                                    {card.name}
+                                  <div className="text-[10px] font-bold mt-1.5 text-center truncate w-full text-slate-200">
+                                    {/* 👇 ADDED BACK: Calling formatCardName safely 👇 */}
+                                    {formatCardName(card.name)}
                                   </div>
-                                  <div className={`text-[9px] px-2 py-0.5 rounded-full mt-1 ${reversed ? 'bg-destructive/20 text-destructive' : 'bg-primary/20 text-primary'}`}>
+                                  <div className={`text-[9px] px-2 py-0.5 rounded-sm mt-1 font-semibold uppercase tracking-wider ${reversed ? 'bg-destructive/20 text-destructive' : 'bg-primary/20 text-primary'}`}>
                                     {card.orientation}
                                   </div>
                                 </div>
@@ -579,10 +603,8 @@ export function SpiritualGuideSection() {
                       <MetricCard label="Overall Synergy" value={selectedCase.insights.scores.overall} highlight />
                     </div>
 
-                    <div className="p-4.5 mt-2 rounded-xl bg-indigo-950/20 border border-indigo-500/20 space-y-3">
-                      <p className="text-sm leading-relaxed text-slate-200 font-normal whitespace-pre-line">
-                        {selectedCase.insights.overallInterpretation}
-                      </p>
+                    <div className="p-4.5 mt-2 rounded-xl bg-indigo-950/20 border border-indigo-500/20 space-y-1">
+                      {renderFormattedText(selectedCase.insights.overallInterpretation)}
                     </div>
                   </Card>
 
@@ -593,48 +615,18 @@ export function SpiritualGuideSection() {
                         <FileEdit className="w-4.5 h-4.5" />
                       </div>
                       <div>
-                        <h3 className="font-display text-lg font-bold text-foreground">Final Holistic Guidance</h3>
-                        <p className="text-xs text-muted-foreground">Provide actionable advice based on the synthesized data</p>
+                        <h3 className="font-display text-lg font-bold text-foreground">Specialist Review</h3>
+                        <p className="text-xs text-muted-foreground">Add your intuitive guidance</p>
                       </div>
                     </div>
                     
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Spiritual Remedies</label>
-                        <Textarea
-                          value={form.spiritualRemedies}
-                          onChange={(e) => updateForm('spiritualRemedies', e.target.value)}
-                          placeholder="Crystals, meditation habits..."
-                          className="min-h-[100px] bg-background/50 border-border/60 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Lifestyle Advice</label>
-                        <Textarea
-                          value={form.lifestyleAdvice}
-                          onChange={(e) => updateForm('lifestyleAdvice', e.target.value)}
-                          placeholder="Sleep routine, grounding exercises..."
-                          className="min-h-[100px] bg-background/50 border-border/60 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-2 col-span-full">
-                        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Consultant Summary (Sent to Client)</label>
-                        <Textarea
-                          value={form.summary}
-                          onChange={(e) => updateForm('summary', e.target.value)}
-                          placeholder="Write the final summary for the client..."
-                          className="min-h-[120px] bg-background/50 border-border/60 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-2 col-span-full">
-                        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Internal Notes</label>
-                        <Textarea
-                          value={form.notes}
-                          onChange={(e) => updateForm('notes', e.target.value)}
-                          placeholder="Internal observations (not sent to client)..."
-                          className="min-h-[80px] bg-background/50 border-border/60 text-sm"
-                        />
-                      </div>
+                    <div className="space-y-2">
+                      <Textarea
+                        value={form.notes}
+                        onChange={(e) => updateForm('notes', e.target.value)}
+                        placeholder="Add your interpretation, observations, and intuitive guidance..."
+                        className="min-h-[160px] bg-background/50 border-border/60 focus:border-primary text-sm leading-relaxed"
+                      />
                     </div>
 
                     <div className="pt-2 flex justify-end">
