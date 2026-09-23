@@ -87,15 +87,19 @@ export function NotificationBell() {
           </div>
           
           <div className="max-h-[400px] overflow-y-auto">
-            {notifications.length === 0 ? (
-              <div className="p-6 text-center text-muted-foreground text-xs">
-                You're all caught up!
+            {unreadCount === 0 ? (
+              <div className="py-10 px-6 flex flex-col items-center justify-center text-center text-muted-foreground">
+                <div className="w-12 h-12 rounded-full bg-secondary/50 flex items-center justify-center mb-3">
+                  <CheckCircle2 className="w-6 h-6 text-primary/40" />
+                </div>
+                <p className="text-sm font-medium text-foreground">You're all caught up!</p>
+                <p className="text-xs mt-1 max-w-[180px]">No new updates right now. Check back later.</p>
               </div>
             ) : (
               notifications.filter(n => !n.isRead).map((n) => (
                 <div 
                   key={n.id} 
-                  className={`p-3.5 border-b border-border/40 hover:bg-secondary/30 transition-colors ${!n.isRead ? 'bg-primary/5' : ''}`}
+                  className="p-3.5 border-b border-border/40 hover:bg-secondary/30 transition-colors bg-primary/5"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2.5">
@@ -105,7 +109,7 @@ export function NotificationBell() {
                         <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                       )}
                       <div>
-                        <p className={`text-sm ${!n.isRead ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground'}`}>
+                        <p className="text-sm font-semibold text-foreground">
                           {n.title}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
@@ -113,14 +117,12 @@ export function NotificationBell() {
                         </p>
                       </div>
                     </div>
-                    {!n.isRead && (
-                      <button 
-                        onClick={(e) => markAsRead(n.id, e)}
-                        className="text-[10px] font-medium text-primary hover:underline whitespace-nowrap shrink-0"
-                      >
-                        Mark read
-                      </button>
-                    )}
+                    <button 
+                      onClick={(e) => markAsRead(n.id, e)}
+                      className="text-[10px] font-medium text-primary hover:underline whitespace-nowrap shrink-0"
+                    >
+                      Mark read
+                    </button>
                   </div>
                 </div>
               ))
