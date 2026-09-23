@@ -7,7 +7,6 @@ import {
   Heart,
   Briefcase,
   Activity,
-  Star,
   CheckCircle2,
   Clock,
   ShieldCheck,
@@ -25,7 +24,6 @@ import { Progress } from '@/components/ui/progress';
 
 interface Review {
   name: string;
-  rating: number;
   comment: string;
   time: string;
 }
@@ -37,10 +35,7 @@ interface DashboardData {
     avgReviewTime: string;
     completedReviews: number;
     practitionerEnergy: number;
-    rating: number;
-    reviewCount: number;
     recentReviews: Review[];
-    // 👇 NEW: Dynamic Alignment Data
     alignment?: {
       message: string;
       channel: string;
@@ -62,7 +57,7 @@ interface DashboardData {
     luckyColor: string;
     auspiciousTime: string;
     mantra: string;
-    lunarPhase: string; // 👇 NEW: Dynamic Lunar Phase
+    lunarPhase: string;
     energyScores: {
       intuition: number;
       clarity: number;
@@ -163,14 +158,7 @@ export function DashboardSection() {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="text-right hidden sm:block">
-                <p className="text-xs text-muted-foreground">Overall Rating</p>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  <span className="text-base font-bold text-foreground">{stats.rating.toFixed(2)}</span>
-                  <span className="text-xs text-muted-foreground">({stats.reviewCount} reviews)</span>
-                </div>
-              </div>
+              {/* Removed the Overall Rating block here */}
               <Avatar className="w-12 h-12 border border-primary/30">
                 <AvatarFallback className="bg-secondary text-primary font-bold">
                   {user?.name ? user.name.substring(0, 2).toUpperCase() : 'SP'}
@@ -213,7 +201,6 @@ export function DashboardSection() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Completed Reviews</p>
-                {/* 👇 FIXED: Swapped this to pull the specialist's personal DB stat, not the global queue stat */}
                 <p className="text-3xl font-display font-bold mt-2 text-foreground">{stats.completedReviews}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
@@ -249,7 +236,6 @@ export function DashboardSection() {
               </Badge>
             </div>
 
-            {/* 👇 NEW: DYNAMIC DAILY GEMINI ALIGNMENT 👇 */}
             <p className="text-sm text-foreground/90 leading-relaxed">
               {stats.alignment?.message || "Cosmic alignment pending..."}
             </p>
@@ -273,8 +259,8 @@ export function DashboardSection() {
           <Card className="lg:col-span-5 bg-card/60 backdrop-blur border-border/50 p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-border/40">
               <div className="flex items-center gap-2">
-                <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                <h3 className="font-display text-base font-bold text-foreground">Recent Seeker Reviews</h3>
+                <Sparkles className="w-4 h-4 text-primary" />
+                <h3 className="font-display text-base font-bold text-foreground">Recent Seeker Activity</h3>
               </div>
               <span className="text-xs text-muted-foreground">Latest {stats.recentReviews.length}</span>
             </div>
@@ -285,18 +271,14 @@ export function DashboardSection() {
                   <div key={i} className="p-3 rounded-xl bg-background/40 border border-border/40 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-foreground">{rev.name}</span>
-                      <div className="flex text-amber-400 text-[10px]">
-                        {[...Array(Math.round(rev.rating))].map((_, idx) => (
-                          <Star key={idx} className="w-3 h-3 fill-amber-400" />
-                        ))}
-                      </div>
+                      {/* Removed Star mappings here */}
                     </div>
                     <p className="text-xs text-muted-foreground italic leading-relaxed">&ldquo;{rev.comment}&rdquo;</p>
                     <p className="text-[10px] text-muted-foreground/60 text-right">{rev.time}</p>
                   </div>
                 ))
               ) : (
-                <div className="text-center text-sm text-muted-foreground py-6">No recent reviews yet.</div>
+                <div className="text-center text-sm text-muted-foreground py-6">No recent activity yet.</div>
               )}
             </div>
           </Card>
@@ -467,7 +449,6 @@ export function DashboardSection() {
               </div>
             </div>
 
-            {/* 👇 NEW: DYNAMIC LUNAR PHASE 👇 */}
             <div className="p-3 rounded-xl bg-secondary/40 border border-border/40 text-xs text-muted-foreground flex items-center gap-2 mt-2">
               <Sun className="w-4 h-4 text-amber-400 shrink-0" />
               <span>Lunar phase: {userZodiac.lunarPhase || "Tracking celestial transits..."}</span>
