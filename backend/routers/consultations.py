@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 import jwt
 import json
+from datetime import datetime, timezone  # 👇 Added for the Timestamp Fix
 from database import db
 from routers.auth import oauth2_scheme, SECRET_KEY, ALGORITHM
 
@@ -49,7 +50,6 @@ async def create_consultation(data: ConsultationCreate, user=Depends(get_current
         }
     )
     
-    # 👇 NEW: FEED THE MASTER DASHBOARD FUNNEL 👇
     await db.activitylog.create(
         data={
             "userId": user.id,
@@ -82,9 +82,15 @@ async def get_consultations(user=Depends(get_current_user)):
     else:
         specialist_type = "spiritual_consultant"
 
+    # 👇 FIX 1: TICKET ROUTING LOGIC 👇
+    # Only fetch Pending tickets OR tickets specifically completed by this user
     tickets = await db.consultation.find_many(
         where={
             "specialistType": specialist_type,
+            "OR": [
+                {"status": "Pending"},
+                {"specialistId": user.id}
+            ]
         },
         include={"client": {"include": {"profile": True}}, "reading": True},
         order={"createdAt": "desc"},
@@ -96,14 +102,12 @@ async def get_consultations(user=Depends(get_current_user)):
         for ticket in tickets:
             t_dict = ticket.model_dump() if hasattr(ticket, "model_dump") else dict(ticket)
 
-            # 👇 THE FIX: Re-attach the nested data that dict() accidentally dropped
             if getattr(ticket, "client", None):
                 t_dict["client"] = ticket.client.model_dump() if hasattr(ticket.client, "model_dump") else dict(ticket.client)
                 if getattr(ticket.client, "profile", None):
                     t_dict["client"]["profile"] = ticket.client.profile.model_dump() if hasattr(ticket.client.profile, "model_dump") else dict(ticket.client.profile)
             if getattr(ticket, "reading", None):
                 t_dict["reading"] = ticket.reading.model_dump() if hasattr(ticket.reading, "model_dump") else dict(ticket.reading)
-            # 👆 END OF FIX
 
             # Fetch recent readings for this specific seeker
             user_history = await db.reading.find_many(
@@ -112,7 +116,6 @@ async def get_consultations(user=Depends(get_current_user)):
                 take=10,
             )
 
-            # Match on readingType as defined in schema.prisma
             latest_palm = next(
                 (r for r in user_history if r.readingType and r.readingType.lower() == "palm"),
                 None,
@@ -138,9 +141,6 @@ async def get_consultations(user=Depends(get_current_user)):
     return tickets
 
 
-# ==========================================
-# BULLETPROOF ENDPOINT: SPECIALIST STATS 
-# ==========================================
 @router.get("/stats")
 async def get_consultation_stats(user=Depends(get_current_user)):
     role = user.role.lower()
@@ -152,7 +152,6 @@ async def get_consultation_stats(user=Depends(get_current_user)):
     else:
         specialist_type = "spiritual_consultant"
 
-    # 1. Pending count for the queue
     pending_count = await db.consultation.count(
         where={
             "specialistType": specialist_type,
@@ -160,13 +159,11 @@ async def get_consultation_stats(user=Depends(get_current_user)):
         }
     )
     
-    # 2. THE FIX: Explicitly INCLUDE the specialistConsultations array!
     user_data = await db.user.find_unique(
         where={"id": user.id},
-        include={"specialistConsultations": True}  # <-- THIS WAS MISSING
+        include={"specialistConsultations": True} 
     )
     
-    # Now the array is actually loaded from the database
     consultations_list = getattr(user_data, "specialistConsultations", [])
     completed_count = len(consultations_list) if consultations_list else 0
 
@@ -176,9 +173,6 @@ async def get_consultation_stats(user=Depends(get_current_user)):
     }
 
 
-# ==========================================
-# FIXED ENDPOINT: REVIEW CONSULTATION
-# ==========================================
 @router.patch("/{consultation_id}/review")
 async def review_consultation(
     consultation_id: str, data: ConsultationReview, user=Depends(get_current_user)
@@ -187,16 +181,17 @@ async def review_consultation(
     if role == "user":
         raise HTTPException(status_code=403, detail="Users cannot review tickets")
 
+    # 👇 FIX 2: THE TIMESTAMP FIX 👇
     updated = await db.consultation.update(
         where={"id": consultation_id},
         data={
             "status": "Completed",
             "specialistId": user.id,
             "specialistNotes": data.specialistNotes, 
+            "reviewedAt": datetime.now(timezone.utc)
         },
     )
 
-    # Your existing notification code
     await db.notification.create(
         data={
             "userId": updated.clientId,
@@ -207,10 +202,9 @@ async def review_consultation(
         }
     )
     
-    # 👇 NEW: FEED THE MASTER DASHBOARD (Specialist Throughput) 👇
     await db.activitylog.create(
         data={
-            "userId": user.id, # The Specialist's ID
+            "userId": user.id, 
             "action": "consultation_completed",
             "metadata": json.dumps({"ticketId": consultation_id})
         }
@@ -220,12 +214,10 @@ async def review_consultation(
 
 @router.get("/{consultation_id}/view")
 async def view_completed_review(consultation_id: str, user=Depends(get_current_user)):
-    # 1. Fetch the ticket
     ticket = await db.consultation.find_unique(where={"id": consultation_id})
     if not ticket or ticket.clientId != user.id:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    # 2. Log that the user actually read the specialist's advice!
     await db.activitylog.create(
         data={
             "userId": user.id,
