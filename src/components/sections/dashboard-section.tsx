@@ -40,6 +40,13 @@ interface DashboardData {
     rating: number;
     reviewCount: number;
     recentReviews: Review[];
+    // 👇 NEW: Dynamic Alignment Data
+    alignment?: {
+      message: string;
+      channel: string;
+      crystal: string;
+      chakra: string;
+    };
   };
   astrology?: {
     sign: string;
@@ -55,6 +62,7 @@ interface DashboardData {
     luckyColor: string;
     auspiciousTime: string;
     mantra: string;
+    lunarPhase: string; // 👇 NEW: Dynamic Lunar Phase
     energyScores: {
       intuition: number;
       clarity: number;
@@ -62,9 +70,7 @@ interface DashboardData {
     };
   };
 }
-// <-- End of DashboardData interface
 
-// 👇 YOU WERE MISSING THIS LINE 👇
 export function DashboardSection() {
   const { user } = useAuth(); 
   const authedFetch = useAuthedFetch();
@@ -72,7 +78,6 @@ export function DashboardSection() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Real-time DB Stats
   const [liveStats, setLiveStats] = useState({ pending: 0, completedAllTime: 0 });
 
   useEffect(() => {
@@ -91,19 +96,14 @@ export function DashboardSection() {
   const role = (user?.role || 'user').toLowerCase();
   const isSpecialist = role.includes('palm') || role.includes('tarot') || role.includes('spiritual');
 
-// ... rest of your code stays exactly the same
-
- useEffect(() => {
-    if (!user) return; // Wait until AuthProvider loads the user
+  useEffect(() => {
+    if (!user) return;
 
     const fetchDashboard = async () => {
       try {
-        // 👇 FIXED: Removed 'token ||', now it just safely checks localStorage
         const currentToken = localStorage.getItem('mystica_token');
         const headers: HeadersInit = {};
         if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`;
-
-        console.log("Headers sending:", headers);
 
         const response = await fetch('/api/dashboard', { headers });
         
@@ -120,7 +120,6 @@ export function DashboardSection() {
     };
 
     fetchDashboard();
-  // 👇 FIXED: Removed 'token' from the dependency array
   }, [user]);
 
   if (isLoading) {
@@ -132,7 +131,7 @@ export function DashboardSection() {
   }
 
   // =====================================================================
-  // SPECIALIST VIEW (Powered by Real DB Queries)
+  // SPECIALIST VIEW
   // =====================================================================
   if (isSpecialist && data.specialistStats) {
     const specialistRoleName = role.includes('palm') ? 'Palmistry Master' : role.includes('tarot') ? 'Tarot Master' : 'Spiritual Guide';
@@ -140,7 +139,6 @@ export function DashboardSection() {
 
     return (
       <div className="space-y-8 pb-16">
-        {/* Practitioner Header */}
         <header className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-xl p-6 sm:p-8">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
             <div className="flex items-start gap-4">
@@ -182,7 +180,6 @@ export function DashboardSection() {
           </div>
         </header>
 
-        {/* Operational Statistics */}
         <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="bg-card/60 backdrop-blur border-border/50 p-5">
             <div className="flex items-center justify-between">
@@ -216,7 +213,8 @@ export function DashboardSection() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Completed Reviews</p>
-                <p className="text-3xl font-display font-bold mt-2 text-foreground">{liveStats.completedAllTime}</p>
+                {/* 👇 FIXED: Swapped this to pull the specialist's personal DB stat, not the global queue stat */}
+                <p className="text-3xl font-display font-bold mt-2 text-foreground">{stats.completedReviews}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                 <CheckCircle2 className="w-5 h-5" />
@@ -239,7 +237,6 @@ export function DashboardSection() {
           </Card>
         </section>
 
-        {/* Specialist Cosmic Grounding & Reviews */}
         <div className="grid lg:grid-cols-12 gap-6">
           <Card className="lg:col-span-7 bg-card/60 backdrop-blur border-border/50 p-6 space-y-6">
             <div className="flex items-center justify-between pb-3 border-b border-border/40">
@@ -248,26 +245,27 @@ export function DashboardSection() {
                 <h3 className="font-display text-lg font-bold text-foreground">Daily Practitioner Alignment</h3>
               </div>
               <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs">
-                Solar Transit Active
+                AI Forecast Active
               </Badge>
             </div>
 
+            {/* 👇 NEW: DYNAMIC DAILY GEMINI ALIGNMENT 👇 */}
             <p className="text-sm text-foreground/90 leading-relaxed">
-              Today&apos;s planetary currents favor deep discernment and clarity. When interpreting complex symbols or broken fate lines, anchor your intuition in constructive, empowering remedies for the seeker.
+              {stats.alignment?.message || "Cosmic alignment pending..."}
             </p>
 
             <div className="grid sm:grid-cols-3 gap-4 pt-2">
               <div className="p-3.5 rounded-xl bg-secondary/40 border border-border/40 space-y-1">
                 <p className="text-[11px] text-muted-foreground uppercase font-medium">Intuitive Channel</p>
-                <p className="text-sm font-semibold text-foreground">High Sensitivity</p>
+                <p className="text-sm font-semibold text-foreground">{stats.alignment?.channel || "Calibrated"}</p>
               </div>
               <div className="p-3.5 rounded-xl bg-secondary/40 border border-border/40 space-y-1">
                 <p className="text-[11px] text-muted-foreground uppercase font-medium">Recommended Crystal</p>
-                <p className="text-sm font-semibold text-foreground">Grounding Quartz</p>
+                <p className="text-sm font-semibold text-foreground">{stats.alignment?.crystal || "Clear Quartz"}</p>
               </div>
               <div className="p-3.5 rounded-xl bg-secondary/40 border border-border/40 space-y-1">
                 <p className="text-[11px] text-muted-foreground uppercase font-medium">Chakra Focus</p>
-                <p className="text-sm font-semibold text-foreground">Third Eye</p>
+                <p className="text-sm font-semibold text-foreground">{stats.alignment?.chakra || "Crown"}</p>
               </div>
             </div>
           </Card>
@@ -308,7 +306,7 @@ export function DashboardSection() {
   }
 
   // =====================================================================
-  // SEEKER (USER) VIEW (Powered by Gemini + Database)
+  // SEEKER (USER) VIEW
   // =====================================================================
   if (data.astrology) {
     const userZodiac = data.astrology;
@@ -469,9 +467,10 @@ export function DashboardSection() {
               </div>
             </div>
 
+            {/* 👇 NEW: DYNAMIC LUNAR PHASE 👇 */}
             <div className="p-3 rounded-xl bg-secondary/40 border border-border/40 text-xs text-muted-foreground flex items-center gap-2 mt-2">
               <Sun className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>Lunar phase: Waxing Crescent. Ideal for setting new spiritual intentions.</span>
+              <span>Lunar phase: {userZodiac.lunarPhase || "Tracking celestial transits..."}</span>
             </div>
           </Card>
         </div>

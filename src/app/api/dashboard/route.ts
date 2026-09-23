@@ -1,57 +1,43 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Initialize Gemini SDK (Ensure GEMINI_API_KEY is in your .env.local)
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-
-// IN-MEMORY CACHE: Stores Gemini results by "userId-YYYY-MM-DD"
-// Prevents hitting the 5 Request/Min limit if the user reloads the page.
 const dailyCache = new Map<string, any>();
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
-
-  if (!authHeader) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!authHeader) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    // 1. Fetch real DB data from Python using the environment variable
     const backendUrl = process.env.BACKEND_URL || 'https://mystica-backend.onrender.com';
     const res = await fetch(`${backendUrl}/api/dashboard`, {
       headers: { 'Authorization': authHeader }
     });
 
-    if (!res.ok) {
-      throw new Error(`Backend returned ${res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`Backend returned ${res.status}`);
     const data = await res.json();
+    const todayStr = new Date().toISOString().split('T')[0];
 
-    // 2. If it's a Seeker (User), Node handles the Gemini generation
+    // =====================================================================
+    // 1. SEEKER (USER) GEMINI GENERATION
+    // =====================================================================
     if (data.dashboard && data.dashboard.role === 'user') {
       const { userId, aiContext, astrology } = data.dashboard;
-
-      // Generate a cache key: e.g., "12345-2026-03-15"
-      const todayStr = new Date().toISOString().split('T')[0];
-      const cacheKey = `${userId}-${todayStr}`;
-
+      const cacheKey = `user-${userId}-${todayStr}`;
       let geminiData;
 
-      // CHECK CACHE FIRST to save API quota
       if (dailyCache.has(cacheKey)) {
         geminiData = dailyCache.get(cacheKey);
       } else {
-        // CALL GEMINI if not cached
         try {
           const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
           const prompt = `
             You are a master astrologer. Provide a daily forecast.
             User's Zodiac Sign: ${aiContext.sign}
-            User's Primary Goal: ${aiContext.primaryGoal}
-            Latest Palm/Tarot Reading Context: ${aiContext.readingSummary}
+            User's Goal: ${aiContext.primaryGoal}
+            Context: ${aiContext.readingSummary}
 
-            Return ONLY a valid JSON object with EXACTLY these keys (no markdown formatting or code blocks):
+            Return ONLY a valid JSON object with EXACTLY these keys:
             {
                 "overview": "2 sentences of general spiritual advice.",
                 "career": "1 sentence on career/karma.",
@@ -60,53 +46,78 @@ export async function GET(request: Request) {
                 "remedy": "1 practical spiritual action or remedy.",
                 "luckyColor": "e.g. Crimson & Gold",
                 "auspiciousTime": "e.g. 10:15 AM - 11:45 AM",
-                "mantra": "A relevant short mantra"
+                "mantra": "A relevant short mantra",
+                "lunarPhase": "e.g., Waxing Crescent. Ideal for setting intentions."
             }
           `;
-
           const result = await model.generateContent(prompt);
-          const text = result.response.text();
-
-          // Strip any markdown blocks if Gemini formats it as code
-          const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
-          geminiData = JSON.parse(cleanText);
-
-          // Store in Cache so it doesn't run again today for this user
+          const text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+          geminiData = JSON.parse(text);
           dailyCache.set(cacheKey, geminiData);
         } catch (err) {
-          console.error("Node Gemini API Error (Rate limit or parse fail):", err);
-          // SAFE FALLBACK: If you hit the 5 RPM limit, it gracefully provides generic advice instead of crashing
+          console.error("Node Gemini API Error:", err);
           geminiData = {
-            overview: `The celestial transits today favor conscious introspection for ${aiContext.sign}. Alignment between your intentions and actions is crucial.`,
+            overview: `The celestial transits today favor conscious introspection for ${aiContext.sign}.`,
             career: "Steady momentum surrounds strategic tasks. Keep goals clear.",
             love: "Empathy and mutual respect create deep, nourishing bonds today.",
             health: "Maintain balanced hydration and take brief moments for mindful pause.",
-            remedy: "Practice 5 minutes of mindful breathwork before starting major tasks.",
+            remedy: "Practice 5 minutes of mindful breathwork before major tasks.",
             luckyColor: "Royal Indigo",
             auspiciousTime: "11:00 AM - 12:30 PM",
-            mantra: "Om Gam Ganapataye Namaha"
+            mantra: "Om Gam Ganapataye Namaha",
+            lunarPhase: "Waxing Crescent. Ideal for setting intentions."
           };
         }
       }
-
-      // Merge the Node-generated AI data into the Python astrology data
-      data.dashboard.astrology = {
-        ...astrology,
-        ...geminiData
-      };
-
-      // Clean up the internal variables before sending to the UI
+      data.dashboard.astrology = { ...astrology, ...geminiData };
       delete data.dashboard.aiContext;
       delete data.dashboard.userId;
+    } 
+    
+    // =====================================================================
+    // 2. SPECIALIST GEMINI GENERATION
+    // =====================================================================
+    else if (data.dashboard && data.dashboard.specialistStats) {
+      const role = data.dashboard.role;
+      // Cache based on role so we only make 1 call per role per day (saves quota!)
+      const cacheKey = `specialist-${role}-${todayStr}`;
+      let geminiData;
+
+      if (dailyCache.has(cacheKey)) {
+        geminiData = dailyCache.get(cacheKey);
+      } else {
+        try {
+          const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+          const prompt = `
+            You are a mentor to spiritual practitioners. Provide a daily cosmic alignment forecast for a ${role}.
+            Return ONLY a valid JSON object with EXACTLY these keys:
+            {
+                "message": "2 sentences of daily guidance advising the practitioner on how to handle client readings today.",
+                "channel": "e.g., High Sensitivity, Deep Grounding",
+                "crystal": "e.g., Black Tourmaline, Amethyst",
+                "chakra": "e.g., Root Chakra, Third Eye"
+            }
+          `;
+          const result = await model.generateContent(prompt);
+          const text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+          geminiData = JSON.parse(text);
+          dailyCache.set(cacheKey, geminiData);
+        } catch (err) {
+          console.error("Specialist Gemini Error:", err);
+          geminiData = {
+            message: "Today's planetary currents favor deep discernment and clarity. Anchor your intuition in constructive, empowering remedies.",
+            channel: "High Sensitivity",
+            crystal: "Grounding Quartz",
+            chakra: "Third Eye"
+          };
+        }
+      }
+      data.dashboard.specialistStats.alignment = geminiData;
     }
 
     return NextResponse.json(data);
   } catch (error) {
     console.error('Dashboard Proxy Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to connect to backend database' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to connect to backend database' }, { status: 500 });
   }
 }
