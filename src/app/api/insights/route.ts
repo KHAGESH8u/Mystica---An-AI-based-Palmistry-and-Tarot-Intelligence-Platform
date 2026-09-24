@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { runAIFallback } from '@/lib/ai-fallback';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'https://mystica-backend.onrender.com';
-const apiKey = process.env.GEMINI_API_KEY || '';
-const genAI = new GoogleGenerativeAI(apiKey);
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,36 +29,40 @@ export async function POST(req: NextRequest) {
       });
       if (contextRes.ok) {
         const contextData = await contextRes.json();
-        zodiac = contextData.zodiac;
-        goal = contextData.goal;
-        historyContext = contextData.history;
+        zodiac = contextData.zodiac || zodiac;
+        goal = contextData.goal || goal;
+        historyContext = contextData.history || historyContext;
       }
     } catch (e) {
       console.error("Could not fetch user context from FastAPI", e);
     }
 
-    // 4. Send everything to Gemini
-    const prompt = `You are the Mystica Spiritual Advisor chatbot. 
-    The seeker is asking you a specific question in a live chat session.
+    // 4. Structured prompt for the cascade
+    const systemInstruction = `You are the Mystica Spiritual Advisor chatbot.
+The seeker is asking a specific question in a live chat session.
+CORE INSTRUCTIONS:
+1. Answer ONLY the specific question asked by the user.
+2. Do NOT provide a generic life report or broad overview.
+3. Use past reading results and profile as background context to make your response personally relevant, but do not recite them word-for-word.
+4. Keep the response natural, conversational, intuitive, and concise (1-2 direct paragraphs).`;
 
-    SEEKER BACKGROUND & RECENT READING OUTPUTS:
-    - Zodiac Sign: ${zodiac}
-    - Core Life Goal: ${goal}
-    - Past Reading Results:
-    ${historyContext}
+    const prompt = `SEEKER BACKGROUND & RECENT READING OUTPUTS:
+- Zodiac Sign: ${zodiac}
+- Core Life Goal: ${goal}
+- Past Reading Results:
+${historyContext}
 
-    USER'S CURRENT CHAT QUESTION:
-    "${question}"
+USER'S CURRENT CHAT QUESTION:
+"${question}"`;
 
-    CORE INSTRUCTIONS:
-    1. Answer ONLY the specific question asked by the user above.
-    2. Do NOT provide a generic life report or broad overview.
-    3. Use their past reading results and profile as internal background memory to make your response personally relevant, but do not recite the readings back to them word-for-word.
-    4. Keep the response natural, conversational, intuitive, and concise (1-2 direct paragraphs).`;
+    const fallbackTemplate = `Looking closely at your path as a ${zodiac} focusing on ${goal}, the current energies encourage steady reflection rather than hasty decisions. Trust your intuitive instincts and take practical, grounded steps toward your current question.`;
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
-    const result = await model.generateContent(prompt);
-    const answer = result.response.text();
+    // Run Tier 1 (Gemini) -> Tier 2 (Groq) -> Tier 3 (Deterministic)
+    const answer = await runAIFallback({
+      prompt,
+      systemInstruction,
+      fallbackTemplate
+    });
 
     // 5. Save the insight to the database as a new reading
     try {
@@ -74,12 +76,11 @@ export async function POST(req: NextRequest) {
           readingType: "insight",
           summary: "Weekly Holistic Insight",
           personalitySynthesis: answer,
-          rawData: { question: question } // Save what they asked!
+          rawData: { question: question }
         })
       });
     } catch (dbError) {
       console.error("Failed to save insight to history:", dbError);
-      // We don't throw here; we still want to return the answer to the user even if save fails.
     }
 
     // 6. Return to UI
