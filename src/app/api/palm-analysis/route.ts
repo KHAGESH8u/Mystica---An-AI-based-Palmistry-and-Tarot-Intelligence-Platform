@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import sharp from 'sharp';
+import { runAIFallback } from '@/lib/ai-fallback'; // We'll use the fallback here too!
 
-// Base URL of your Python PyTorch backend
 const PALMISTRY_API_URL = process.env.PALMISTRY_API_URL || 'http://palmistry-ai:8001';
-
-// Initialize Gemini
-const apiKey = process.env.GEMINI_API_KEY || '';
-const genAI = new GoogleGenerativeAI(apiKey);
 
 interface PalmLinePrediction {
   detected: boolean;
@@ -28,20 +25,6 @@ interface PalmistryApiResponse {
   };
 }
 
-interface PalmAnalysisRequestBody {
-  image: string;
-  handType: 'left' | 'right';
-}
-
-function dataUrlToBlob(dataUrl: string): { blob: Blob; extension: string } {
-  const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
-  if (!match) throw new Error('Invalid image data URL');
-  const [, mimeType, base64Data] = match;
-  const buffer = Buffer.from(base64Data, 'base64');
-  const extension = mimeType.split('/')[1] || 'png';
-  return { blob: new Blob([buffer], { type: mimeType }), extension };
-}
-
 function describeConfidence(confidence: number): string {
   if (confidence >= 0.85) return 'very clearly defined';
   if (confidence >= 0.6) return 'reasonably well defined';
@@ -59,17 +42,28 @@ function describeLine(name: string, line: PalmLinePrediction, handType: 'left' |
 
 export async function POST(req: NextRequest) {
   try {
-    const body: PalmAnalysisRequestBody = await req.json();
-    const { image, handType } = body;
-
+    const { image, handType } = await req.json();
     if (!image) return NextResponse.json({ error: 'No image provided' }, { status: 400 });
-    const hand: 'left' | 'right' = handType === 'left' ? 'left' : 'right';
+    const hand = handType === 'left' ? 'left' : 'right';
 
-    const { blob, extension } = dataUrlToBlob(image);
+    // 1. Intercept and isolate the Base64 image data
+    const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!match) throw new Error('Invalid image data URL');
+    const imageBuffer = Buffer.from(match[2], 'base64');
+
+    // 2. COMPRESSION STEP: Shrink to 800x800 (~80KB) to prevent Render memory crashes
+    const compressedBuffer = await sharp(imageBuffer)
+      .resize({ width: 800, height: 800, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+
+    const compressedBlob = new Blob([new Uint8Array(compressedBuffer)], { type: 'image/jpeg' });
+    const optimizedBase64ForDB = `data:image/jpeg;base64,${compressedBuffer.toString('base64')}`;
+
+    // 3. Send lightweight image to Python Backend (Memory-safe)
     const formData = new FormData();
-    formData.append('file', blob, `palm.${extension}`);
+    formData.append('file', compressedBlob, 'palm_optimized.jpg');
 
-    // 1. Send image to Python Backend (Port 8001)
     const apiResponse = await fetch(`${PALMISTRY_API_URL}/predict`, {
       method: 'POST',
       body: formData,
@@ -82,9 +76,8 @@ export async function POST(req: NextRequest) {
 
     const prediction = (await apiResponse.json()) as PalmistryApiResponse;
     const { lines } = prediction;
-    console.log("RAW PYTHON DATA:", JSON.stringify(prediction.lines, null, 2));
 
-    // 2. Format the Python metrics into a prompt for Gemini
+    // 4. Format the Python metrics into a prompt for our AI Fallback
     const lineDescriptions = [
       describeLine('life line', lines.life_line, hand),
       describeLine('heart line', lines.heart_line, hand),
@@ -93,65 +86,51 @@ export async function POST(req: NextRequest) {
       describeLine('sun line', lines.sun_line, hand),
     ].join('\n');
 
-    // 3. Ask Gemini to synthesize a mystical reading based on the computer vision data
-    const prompt = `You are an expert palm reader. I have used a computer vision model to scan a user's ${hand} hand. 
-Here is the technical data from the scan:
+    const systemInstruction = `You are an expert palm reader. I have used a computer vision model to scan a user's ${hand} hand. Write a short, engaging, and mystical 2-paragraph personality synthesis based ONLY on these line strengths. Keep it under 150 words. Do not list the confidence percentages, just interpret what strong/faint/missing lines mean.`;
+    
+    const prompt = `Here is the technical data from the scan:\n\n${lineDescriptions}`;
 
-${lineDescriptions}
+    const fallbackTemplate = `Based on the unique patterns detected on your ${hand} hand, the lines reflect a journey of steady growth and deep internal reflection. While the exact depths of your heart and fate lines hold their own mysteries today, the overall energy of your palm suggests resilience and intuitive strength moving forward.`;
 
-Write a short, engaging, and mystical 2-paragraph personality synthesis based ONLY on these line strengths. 
-Keep it under 150 words. Do not list the confidence percentages, just interpret what strong/faint/missing lines mean for their life, heart, mind, and fate.`;
-
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-3.6-flash',
-      generationConfig: { maxOutputTokens: 4096, temperature: 0.7 }
+    // Use our new resilient AI cascade!
+    const personality = await runAIFallback({
+      prompt,
+      systemInstruction,
+      fallbackTemplate
     });
-
-    const resultAI = await model.generateContent(prompt);
-    const personality = resultAI.response.text();
 
     const detectedLines = Object.values(lines).filter((l) => l.detected);
     const summary = prediction.success
       ? `${detectedLines.length} of 5 palm lines were successfully analyzed on your ${hand} hand. Here is your AI-synthesized reading.`
       : 'The palm analysis service could not process this image fully. Please try a clearer photo.';
 
-    const recommendations = [
-      'For a more precise reading, use natural daylight.',
-      'Ensure your palm is flat and fully visible inside the scanner box.'
-    ];
-
-    // --- NEW CODE: Save Reading to PostgreSQL via FastAPI ---
-    const authHeader = req.headers.get('authorization'); // Grab the JWT token from the frontend
-    
+    // 5. Save safe, compressed data to PostgreSQL
+    const authHeader = req.headers.get('authorization');
     if (authHeader) {
       try {
         const backendUrl = process.env.BACKEND_URL || 'https://mystica-backend.onrender.com';
-        
         await fetch(backendUrl + '/api/readings', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': authHeader // Pass the token so FastAPI knows who the user is
+            'Authorization': authHeader
           },
           body: JSON.stringify({
             readingType: 'palm',
             summary: summary,
             personalitySynthesis: personality,
-            imageUrl: image,
+            imageUrl: optimizedBase64ForDB, // <--- Saves 80KB instead of 10MB!
             rawData: {
               handType: hand,
               lines: lines
             }
           })
         });
-        console.log("Reading successfully saved to database!");
       } catch (dbError) {
-        console.error('Failed to save reading to DB, but continuing:', dbError);
+        console.error('Failed to save reading to DB:', dbError);
       }
     }
-    // --- END NEW CODE ---
 
-    // 4. Return everything to the frontend UI
     return NextResponse.json({
       summary,
       lifeLine: describeLine('life line', lines.life_line, hand),
@@ -159,8 +138,11 @@ Keep it under 150 words. Do not list the confidence percentages, just interpret 
       headLine: describeLine('head line', lines.head_line, hand),
       fateLine: describeLine('fate line', lines.fate_line, hand),
       sunLine: describeLine('sun line', lines.sun_line, hand),
-      personality, // This is now dynamically generated by Gemini!
-      recommendations,
+      personality,
+      recommendations: [
+        'For a more precise reading, use natural daylight.',
+        'Ensure your palm is flat and fully visible inside the scanner box.'
+      ],
       id: crypto.randomUUID(),
     });
 
