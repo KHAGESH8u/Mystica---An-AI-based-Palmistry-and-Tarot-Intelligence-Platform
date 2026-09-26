@@ -22,7 +22,7 @@ export async function runAIFallback(options: AIFallbackOptions): Promise<string>
     try {
       console.log('Attempting AI Generation: Tier 1 (Gemini)');
       const model = genAI.getGenerativeModel({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-1.5-flash',
         generationConfig: {
           maxOutputTokens: 4096,
           temperature: 0.7,
@@ -47,7 +47,7 @@ export async function runAIFallback(options: AIFallbackOptions): Promise<string>
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+          model: 'openai/gpt-oss-120b',
           messages: [
             { role: 'system', content: systemInstruction || 'You are a helpful assistant.' },
             { role: 'user', content: prompt }
